@@ -17,6 +17,11 @@ const { parseFile, tokensFrom, CAP } = new Function(
    return { parseFile, tokensFrom, CAP };`
 )();
 
+test('the allocate script denies the agent write access to .git', () => {
+  const body = slice('const script = p =>', '// ---------- MCP');
+  assert.match(body, /--disallowedTools "Edit\(\.\/\.git\/\*\*\)" "Write\(\.\/\.git\/\*\*\)"/);
+});
+
 test('parseFile reads title, vision, image, model and context', () => {
   const f = parseFile('# My Project\nVision: Make things.\nImage: https://x.test/a.png\nModel: claude-opus-5-5\n\nDo this work.\nAnd this.');
   assert.equal(f.title, 'My Project');

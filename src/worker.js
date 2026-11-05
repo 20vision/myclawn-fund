@@ -56,11 +56,13 @@ find . -type l -not -path './.git/*' -delete   # a symlink could point at your p
 S="$(curl -fsS -X POST "$API/api/session/$SLUG")"
 echo "Your agent is working on $REPO in $WORK. It can only edit files in this folder."
 # File tools only, limited to this folder, so it can't run the project's code or read your files. Your settings and the repo's stay off.
+# .git is off limits: this script runs git below, so a planted hook or config line would run on your computer.
 claude -p "Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns." ${p.model_req ? `--model ${sh(p.model_req)} ` : ''}\\
   --setting-sources "" --strict-mcp-config --permission-mode dontAsk \\
   --mcp-config '{"mcpServers":{"tokenfund":{"type":"http","url":"'"$API"'/mcp"}}}' \\
   --tools "Read,Edit,Write,Glob,Grep" \\
   --allowedTools "mcp__tokenfund__start_session" "Read(./**)" "Edit(./**)" "Write(./**)" \\
+  --disallowedTools "Edit(./.git/**)" "Write(./.git/**)" \\
   --max-turns 40 --output-format json < /dev/null > "$WORK/run.json"
 TITLE="tokenfund contribution"; BODY=""
 if [ -f .tokenfund-pr.md ]; then TITLE="$(head -n1 .tokenfund-pr.md | cut -c1-70)"; BODY="$(tail -n +2 .tokenfund-pr.md)"; rm -f .tokenfund-pr.md; fi
