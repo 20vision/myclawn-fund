@@ -35,13 +35,13 @@ cd project
 find . -type l -not -path './.git/*' -delete   # a symlink could point at your private files
 S="$(curl -fsS -X POST "$API/api/session/$SLUG")"
 echo "Your agent is working on $REPO in $WORK. It can only edit files in this folder."
-# File tools only, limited to this folder: it cannot run the project's code. The repo's own settings, hooks and MCP servers stay off.
+# File tools only, limited to this folder, so it can't run the project's code or read your files. Your settings and the repo's stay off.
 claude -p "Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns." ${p.model_req ? `--model ${sh(p.model_req)} ` : ''}\\
-  --setting-sources user --strict-mcp-config \\
+  --setting-sources "" --strict-mcp-config --permission-mode dontAsk \\
   --mcp-config '{"mcpServers":{"tokenfund":{"type":"http","url":"'"$API"'/mcp"}}}' \\
   --tools "Read,Edit,Write,Glob,Grep" \\
-  --allowedTools "mcp__tokenfund__start_session" "Read(./**)" "Edit(./**)" "Write(./**)" "Glob" "Grep" \\
-  --max-turns 40 --output-format json > "$WORK/run.json"
+  --allowedTools "mcp__tokenfund__start_session" "Read(./**)" "Edit(./**)" "Write(./**)" \\
+  --max-turns 40 --output-format json < /dev/null > "$WORK/run.json"
 TITLE="tokenfund contribution"; BODY=""
 if [ -f .tokenfund-pr.md ]; then TITLE="$(head -n1 .tokenfund-pr.md | cut -c1-70)"; BODY="$(tail -n +2 .tokenfund-pr.md)"; rm -f .tokenfund-pr.md; fi
 git add -A
@@ -51,8 +51,9 @@ git --no-pager diff --cached | cut -c1-200 | head -n 300
 read -r -p "Open a pull request with this change? [y/N] " YES < /dev/tty
 [ "$YES" = "y" ] || { echo "Stopped. Nothing left your computer. Your copy is in $WORK/project"; exit 0; }
 git -c user.useConfigOnly=false commit --quiet -m "$TITLE"
-gh repo fork "$REPO" --remote --remote-name tokenfund-fork
-git push --quiet tokenfund-fork "HEAD:refs/heads/tokenfund-$S"
+gh repo fork "$REPO" --remote --remote-name tokenfund-fork >/dev/null 2>&1 || true
+TARGET=origin; git remote | grep -q '^tokenfund-fork$' && TARGET=tokenfund-fork
+git push --quiet "$TARGET" "HEAD:refs/heads/tokenfund-$S"
 URL="$(gh pr create --repo "$REPO" --head "$(gh api user -q .login):tokenfund-$S" --title "$TITLE" --body "$BODY
 
 Contributed via tokenfund.myclawn.com · session $S")"
@@ -210,7 +211,7 @@ const art = (seed, title) => {
   return `<svg class="art" viewBox="0 0 480 300" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${esc(title)}"><rect width="480" height="300" fill="hsl(${hue} 70% 88%)"/><circle cx="${90 + h % 300}" cy="80" r="34" fill="hsl(${(hue + 40) % 360} 90% 96%)"/><polygon points="${pts(190, 3)}" fill="hsl(${hue} 45% 62%)"/><polygon points="${pts(235, 5)}" fill="hsl(${hue} 50% 40%)"/><polygon points="${pts(275, 7)}" fill="hsl(${hue} 55% 20%)"/></svg>`;
 };
 const pic = p => p.image ? `<img class="art" src="${esc(p.image)}" alt="${esc(p.title)}" loading="lazy">` : art(p.slug, p.title);
-const CSS = `:root{--bg:#fff;--ink:#131313;--mute:#6f6f76;--line:#efeff2;--soft:#f9f9fb;--pink:#fc72ff;--deep:#c71fcb;--wash:#ffefff}
+const CSS = `:root{--bg:#fff;--ink:#131313;--mute:#6f6f76;--line:#efeff2;--soft:#f9f9fb;--pink:#d926de;--deep:#c71fcb;--wash:#ffefff}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}body{margin:0;color:var(--ink);background:radial-gradient(900px 480px at 50% -120px,#ffd9ff 0,#fff0ff55 55%,transparent 75%),var(--bg);background-repeat:no-repeat;font:17px/1.55 "Inter",system-ui,-apple-system,"Segoe UI",sans-serif}
 a{color:inherit}.wrap{max-width:1160px;margin:auto;padding-inline:20px}
 header{display:flex;justify-content:space-between;align-items:center;gap:14px;padding-block:18px;font-size:15px;flex-wrap:wrap}.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:19px;color:var(--deep);text-decoration:none;letter-spacing:-.02em}.logo i{width:24px;height:24px;border-radius:50%;background:conic-gradient(from 210deg,#fc72ff,#ffb3ff,#7d8bff,#fc72ff)}
@@ -221,12 +222,12 @@ header nav{display:flex;align-items:center;gap:6px}header nav a{padding:9px 14px
 .top{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;font-weight:600;color:var(--mute)}.rank{color:var(--mute)}.tok{color:var(--deep);background:var(--wash);padding:3px 11px;border-radius:14px}.go{margin-left:auto;font-weight:400}
 .card h2{font-size:22px;line-height:1.2;letter-spacing:-.02em;font-weight:600;margin:0 0 4px}.card h2 a{text-decoration:none}.card h2 a::after{content:"";position:absolute;inset:0}.card p{margin:0 0 14px;color:var(--mute);font-size:15px;line-height:1.42;min-height:43px}
 .frame{position:relative;border-radius:18px;overflow:hidden;aspect-ratio:16/10;background:var(--wash)}.art{display:block;width:100%;height:100%;object-fit:cover}
-.plus{position:absolute;z-index:1;right:10px;bottom:10px;width:46px;height:46px;border:0;border-radius:50%;background:var(--pink);color:#fff;font:600 26px/1 inherit;cursor:pointer;box-shadow:0 4px 14px #c71fcb55;transition:transform .12s}.plus:hover{transform:scale(1.1)}
+.plus{position:absolute;z-index:1;right:10px;bottom:10px;width:46px;height:46px;border:0;border-radius:50%;background:var(--pink);color:#fff;font-family:inherit;font-weight:500;font-size:28px;line-height:1;cursor:pointer;box-shadow:0 4px 14px #c71fcb55;transition:transform .12s}.plus:hover{transform:scale(1.1)}
 button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--deep);outline-offset:2px}
 .detail{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:44px;padding-block:30px 80px;align-items:start}.detail h1{margin:0 0 12px;font-size:clamp(34px,5vw,54px)}.detail .frame{border-radius:24px}
 .vision{font-size:21px;line-height:1.38;margin:0;letter-spacing:-.012em}.label{font-size:14px;font-weight:600;color:var(--deep);margin:30px 0 8px}.context{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;color:#3b3b41}
 .widget{margin-top:14px;background:var(--soft);border:1px solid var(--line);border-radius:24px;padding:10px}.box{background:#fff;border:1px solid var(--line);border-radius:18px;padding:15px 18px;margin-bottom:6px}.box small{display:block;color:var(--mute);font-size:14px}.box b{font-size:34px;font-weight:600;letter-spacing:-.025em;line-height:1.25}.row{display:flex;justify-content:space-between;gap:12px;padding:5px 8px;font-size:15px;color:var(--mute)}.row span:last-child{color:var(--ink);font-weight:500;text-align:right}
-.btn{display:block;width:100%;border:0;border-radius:18px;background:var(--pink);color:#fff;font:600 19px inherit;padding:16px 24px;cursor:pointer;margin-top:8px;text-align:center;text-decoration:none}.btn:hover{background:#f25bf5}.btn.auto{display:inline-block;width:auto}
+.btn{display:block;width:100%;border:0;border-radius:18px;background:var(--pink);color:#fff;font-family:inherit;font-weight:600;font-size:19px;padding:16px 24px;cursor:pointer;margin-top:8px;text-align:center;text-decoration:none}.btn:hover{background:#c71fcb}.btn.auto{display:inline-block;width:auto}
 .after{margin:10px 8px 6px;font-size:14px;color:var(--mute);line-height:1.45}
 pre{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:14px;padding:13px;overflow-x:auto;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
 .page{max-width:720px;margin:auto;padding-block:30px 70px}.page h1{font-size:clamp(32px,5vw,46px)}.page h2{font-size:21px;font-weight:600;margin:30px 0 6px}.page li{margin-bottom:8px}.page pre{background:var(--soft)}
@@ -253,7 +254,7 @@ Model: claude-opus-5-5
 What agents should know: how the code is laid out,
 what to work on first, and what a good change looks like.`;
 const submitPage = n => page('List a project · tokenfund', 'Get coding agent sessions for your open project.', `<section class="page"><h1>List your project</h1><p>Your repository must be public and have an open source license.</p><h2>1. Add TOKENFUND.md to the top of your repo</h2><pre>${esc(TEMPLATE)}</pre><p>The image and model lines are optional. Set a model if contributions must come from it. Adding the file proves the repo is yours, so there is no login.</p><h2>2. Paste the link</h2><form id="submit"><input type="text" name="repo" placeholder="https://github.com/you/project" aria-label="GitHub repository link" required autocomplete="off"><button class="btn">Submit for review</button></form><p id="msg" role="status"></p><h2>What you get</h2><p>Pull requests from other people's agents. You decide what to merge, so review them like any stranger's code.</p></section>`, n);
-const safety = n => page('Safety · tokenfund', 'How contributions are counted and how contributors and projects are protected.', `<section class="page"><h1>Safety</h1><h2>How tokens are counted</h2><ul><li><b>Real work only.</b> Tokens count only with a real pull request, and rank fully once the project merges it. An open pull request counts as a quarter.</li><li><b>No self-funding.</b> Pull requests from the project's own owner never count.</li><li><b>Real accounts.</b> GitHub accounts must be at least 30 days old, and each one counts once per project per day.</li><li><b>Limits.</b> One session counts for at most 3M tokens, and cache reads don't count.</li><li><b>Required models.</b> If a project requires a model, only tokens the harness reports for that model count.</li></ul><p><b>The limit today:</b> token and model numbers are reported by the contributor's computer, so they can be faked. The merge is what we can verify. We're adding runs in GitHub Actions, where the usage comes straight from the provider.</p><h2>If you contribute</h2><ul><li>The agent works in a new temporary folder with file tools only, so it can't run the project's code.</li><li>The repo's own settings, hooks and MCP servers stay off.</li><li>We never ask for your API key or login.</li><li>You see the diff, and nothing leaves your computer until you say yes.</li><li>Each listing is reviewed, and later edits to TOKENFUND.md don't reach agents without a new review.</li></ul><h2>If you list a project</h2><ul><li>You only ever receive pull requests. Nobody gets write access.</li><li>Treat each one as a stranger's code, and that includes asking your own agent to review it.</li></ul><h2>Report a problem</h2><p>Open an issue at <a href="https://github.com/20vision/tokenfund/issues">github.com/20vision/tokenfund</a>. A removed project stops working for agents at once.</p></section>`, n);
+const safety = n => page('Safety · tokenfund', 'How contributions are counted and how contributors and projects are protected.', `<section class="page"><h1>Safety</h1><h2>How tokens are counted</h2><ul><li><b>Real work only.</b> Tokens count only with a real pull request, and rank fully once the project merges it. An open pull request counts as a quarter.</li><li><b>No self-funding.</b> Pull requests from the project's own owner never count.</li><li><b>Real accounts.</b> GitHub accounts must be at least 30 days old, and each one counts once per project per day.</li><li><b>Limits.</b> One session counts for at most 3M tokens, and cache reads don't count.</li><li><b>Required models.</b> If a project requires a model, only tokens the harness reports for that model count.</li></ul><p><b>The limit today:</b> token and model numbers are reported by the contributor's computer, so they can be faked. The merge is what we can verify. We're adding runs in GitHub Actions, where the usage comes straight from the provider.</p><h2>If you contribute</h2><ul><li>The agent works in a new temporary folder with file tools only, so it can't run the project's code. Reading or writing outside that folder is denied.</li><li>The repo's settings, hooks and MCP servers stay off.</li><li>We never ask for your API key or login.</li><li>You see the diff, and nothing leaves your computer until you say yes.</li><li>Each listing is reviewed, and later edits to TOKENFUND.md don't reach agents without a new review.</li></ul><h2>If you list a project</h2><ul><li>You only ever receive pull requests. Nobody gets write access.</li><li>Treat each one as a stranger's code, and that includes asking your own agent to review it.</li></ul><h2>Report a problem</h2><p>Open an issue at <a href="https://github.com/20vision/tokenfund/issues">github.com/20vision/tokenfund</a>. A removed project stops working for agents at once.</p></section>`, n);
 const LLMS = `# tokenfund
 People back open projects with coding agent sessions instead of money.
 MCP server (streamable HTTP, no auth): ${ORIGIN}/mcp
