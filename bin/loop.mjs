@@ -35,9 +35,18 @@ const review = async p => {
   }
   return admin('/admin/review', { slug: p.slug, status: 'live', note: String(v.why).slice(0, 300), image });
 };
+// Shrinks the pinned GitHub image and serves it from our edge: full-size screenshots took 1.7 s to load.
+const shrink = async p => {
+  const r = await fetch(p.image); if (!r.ok) throw new Error(`image ${p.slug}: ${r.status}`);
+  const py = "import sys,io,base64;from PIL import Image;i=Image.open(io.BytesIO(sys.stdin.buffer.read()));i.thumbnail((800,800));i=i.convert('RGB');o=io.BytesIO();i.save(o,'WEBP',quality=78,method=6);sys.stdout.write(base64.b64encode(o.getvalue()).decode())";
+  const data = execFileSync('python3', ['-I', '-c', py], { input: Buffer.from(await r.arrayBuffer()), encoding: 'utf8', maxBuffer: 2e7 });
+  await admin('/admin/image', { slug: p.slug, data, image: `/img/${p.slug}?v=${/\/([0-9a-f]{40})\//.exec(p.image)[1].slice(0, 8)}` });
+  console.log('shrunk', p.slug, Math.round(data.length * .75 / 1024), 'KB');
+};
 const projects = await admin('/admin/projects');
 for (const p of projects.filter(p => p.status === 'pending')) await review(p);
 const after = await admin('/admin/projects');
+for (const p of after.filter(p => p.status === 'live' && p.image.startsWith('https://raw.githubusercontent.com/'))) await shrink(p);
 // Credit rules live here because this is where GitHub, not the contributor, supplies the facts.
 const ageOk = u => Date.now() - new Date(gh(`users/${u}`).created_at).getTime() > 30 * 864e5;
 const seen = new Set();

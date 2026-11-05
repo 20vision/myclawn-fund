@@ -15,7 +15,27 @@ async function count(env, req, slug, kind, col) {
   const r = await env.DB.prepare('INSERT OR IGNORE INTO events VALUES(?,?,?,?)').bind(slug, today(), await who(req, env), kind).run();
   if (r.meta.changes) await env.DB.prepare(`UPDATE projects SET ${col}=${col}+1 WHERE slug=?`).bind(slug).run();
 }
-const live = env => env.DB.prepare("SELECT * FROM projects WHERE status='live' ORDER BY tokens_merged+tokens_open/4 DESC, reviewed_at DESC LIMIT 200").all().then(r => r.results);
+const liveQuery = env => env.DB.prepare("SELECT * FROM projects WHERE status='live' ORDER BY tokens_merged+tokens_open/4 DESC, reviewed_at DESC LIMIT 200").all().then(r => r.results);
+// The database sits in one region, so edge-cache the list for visitors far away. Removal still applies at once in liveOne.
+const LIVE_KEY = new Request(ORIGIN + '/__live');
+const live = async (env, ctx) => {
+  const hit = await caches.default.match(LIVE_KEY);
+  if (hit) return hit.json();
+  const rows = await liveQuery(env);
+  const put = caches.default.put(LIVE_KEY, new Response(JSON.stringify(rows), { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=60' } }));
+  if (ctx) ctx.waitUntil(put); else await put;
+  return rows;
+};
+async function image(env, ctx, req, slug) {
+  const key = new Request(new URL(req.url).toString());
+  const hit = await caches.default.match(key);
+  if (hit) return hit;
+  const r = SLUG.test(slug) ? await env.DB.prepare('SELECT data FROM images WHERE slug=?').bind(slug).first() : null;
+  if (!r) return new Response('Not found', { status: 404 });
+  const res = new Response(Uint8Array.from(atob(r.data), c => c.charCodeAt(0)), { headers: { 'content-type': 'image/webp', 'cache-control': 'public, max-age=31536000, immutable' } });
+  ctx.waitUntil(caches.default.put(key, res.clone()));
+  return res;
+}
 const liveOne = (env, slug) => SLUG.test(slug) ? env.DB.prepare("SELECT * FROM projects WHERE status='live' AND slug=?").bind(slug).first() : null;
 
 // ---------- allocate ----------
@@ -188,6 +208,11 @@ async function receipt(req, env, id, prUrl) {
 async function admin(req, env, path) {
   const t = (req.headers.get('authorization') || '').replace('Bearer ', '');
   if (!env.ADMIN_TOKEN || t !== env.ADMIN_TOKEN) return new Response('no', { status: 401 });
+  if (path === '/admin/image') {
+    const b = await req.json();
+    await env.DB.batch([env.DB.prepare('INSERT OR REPLACE INTO images VALUES(?,?)').bind(b.slug, b.data), env.DB.prepare('UPDATE projects SET image=? WHERE slug=?').bind(b.image, b.slug)]);
+    return json({ ok: true });
+  }
   if (path === '/admin/projects') return json((await env.DB.prepare('SELECT * FROM projects ORDER BY created_at').all()).results);
   if (path === '/admin/receipts') return json((await env.DB.prepare("SELECT * FROM receipts WHERE status NOT IN ('merged','closed','wrong_model') ORDER BY created_at").all()).results);
   const b = await req.json();
@@ -240,8 +265,8 @@ async function copy(txt,slug){try{await navigator.clipboard.writeText(txt);toast
 try{window.track&&track('allocate_copy',{project:slug})}catch{}fetch('/api/copy',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({slug})}).catch(()=>{})}
 $('[data-cmd]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();copy(b.dataset.cmd,b.dataset.slug)}));
 const f=document.getElementById('submit');if(f)f.addEventListener('submit',async e=>{e.preventDefault();const m=document.getElementById('msg');m.textContent='Checking…';const r=await fetch('/api/submit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({repo:f.repo.value})}).catch(()=>null);const d=r?await r.json():{error:'Network problem. Try again.'};m.textContent=d.message||d.error});`;
-const page = (title, desc, body, nonce) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><meta name="color-scheme" content="light dark"><link rel="preconnect" href="https://fonts.gstatic.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"><style>${CSS}</style><script defer src="https://t.myclawn.com/t.js" data-ns="myclawn"></script></head><body><div class="wrap"><header><a class="logo" href="/"><i></i>tokenfund</a><nav><a href="/safety">Safety</a><a class="cta" href="/submit">List a project</a></nav></header>${body}<footer><span>By <a href="https://www.myclawn.com">MyClawn</a></span><a href="/safety">Safety</a><a href="https://github.com/20vision/tokenfund">Source</a><a href="/llms.txt">For agents</a></footer></div><div id="toast" role="status" hidden></div><script nonce="${nonce}">${JS}</script></body></html>`, {
-  headers: { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}' https://t.myclawn.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src https://raw.githubusercontent.com; connect-src 'self' https://t.myclawn.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` },
+const page = (title, desc, body, nonce) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><meta name="color-scheme" content="light dark"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"><style>${CSS}</style><script defer src="https://t.myclawn.com/t.js" data-ns="myclawn"></script></head><body><div class="wrap"><header><a class="logo" href="/"><i></i>tokenfund</a><nav><a href="/safety">Safety</a><a class="cta" href="/submit">List a project</a></nav></header>${body}<footer><span>By <a href="https://www.myclawn.com">MyClawn</a></span><a href="/safety">Safety</a><a href="https://github.com/20vision/tokenfund">Source</a><a href="/llms.txt">For agents</a></footer></div><div id="toast" role="status" hidden></div><script nonce="${nonce}">${JS}</script></body></html>`, {
+  headers: { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}' https://t.myclawn.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self' https://t.myclawn.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` },
 });
 const total = p => p.tokens_merged + p.tokens_open;
 const home = (ps, n) => page('tokenfund: back open source with tokens, not money', 'Open source projects ranked by the harness tokens people give them. Pick a vision, press +, and your coding agent works on it.', `<section class="hero"><h1>Fund visions with <em>tokens</em>, not money.</h1><p>Open source projects, ranked by the tokens people give them. Press + and your coding agent spends a session on it.</p></section><section class="grid">${ps.map((p, i) => `<article class="card"><div class="top"><span class="rank">#${i + 1}</span><span class="tok">${fmt(total(p))} tokens</span><span class="go" aria-hidden="true">↗</span></div><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2><p>${esc(p.vision)}</p><div class="frame">${pic(p)}<button class="plus" aria-label="Contribute tokens to ${esc(p.title)}: copy the command" title="Copy the command" data-slug="${esc(p.slug)}" data-cmd="${esc(allocate(p))}">+</button></div></article>`).join('') || '<p>The first projects are in review.</p>'}</section>`, n);
@@ -264,7 +289,7 @@ Projects JSON: ${ORIGIN}/api/projects
 `;
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const u = new URL(req.url), path = u.pathname, nonce = crypto.randomUUID().replace(/-/g, '');
     try {
       if (path === '/mcp') return req.method === 'POST' ? await mcp(req, env) : new Response('Use POST', { status: 405, headers: { allow: 'POST' } });
@@ -288,8 +313,10 @@ export default {
         return json({ ok: true });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
-      if (path === '/') return home(await live(env), nonce);
+      if (path === '/') return home(await live(env, ctx), nonce);
       if (path === '/submit') return submitPage(nonce);
+      const im = /^\/img\/([^/]+)$/.exec(path);
+      if (im) return await image(env, ctx, req, im[1]);
       if (path === '/safety') return safety(nonce);
       if (path === '/llms.txt') return new Response(LLMS, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
       if (path === '/api/projects') return json((await live(env)).map(({ slug, owner, repo, title, vision, model_req, sessions, tokens_merged, tokens_open, prs_open, prs_merged }) => ({ slug, owner, repo, title, vision, required_model: model_req, sessions, tokens_merged, tokens_open, prs_open, prs_merged })));

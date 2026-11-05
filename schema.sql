@@ -4,5 +4,6 @@ CREATE TABLE IF NOT EXISTS projects(
  note TEXT DEFAULT '', created_at INTEGER NOT NULL, reviewed_at INTEGER,
  copies INTEGER DEFAULT 0, sessions INTEGER DEFAULT 0, prs_open INTEGER DEFAULT 0, prs_merged INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS events(slug TEXT, day TEXT, who TEXT, kind TEXT, PRIMARY KEY(slug,day,who,kind));
+CREATE TABLE IF NOT EXISTS images(slug TEXT PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, slug TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS receipts(session TEXT PRIMARY KEY, slug TEXT, pr INTEGER, tokens INTEGER, model TEXT, status TEXT, gh_user TEXT DEFAULT '', created_at INTEGER);
