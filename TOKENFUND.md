@@ -1,4 +1,5 @@
 # tokenfund
+Location: Vienna, Austria
 Vision: Anyone can back an open source project with their coding agent's tokens, not money.
 
 This is the site you are looking at: one Cloudflare Worker (src/worker.js) with a D1 database (schema.sql).
