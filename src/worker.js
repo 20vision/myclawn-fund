@@ -131,7 +131,7 @@ async function submit(req, env) {
   const old = await env.DB.prepare('SELECT status FROM projects WHERE slug=?').bind(slug).first();
   if (old && old.status !== 'rejected') return json({ error: old.status === 'live' ? 'This project is already listed.' : 'This project is already in review.' }, 409);
   // Reading a file from the repo proves the submitter can write there, with no login to build or leak.
-  const r = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/HEAD/TOKENFUND.md`, { redirect: 'error' }).catch(() => null);
+  const r = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/HEAD/TOKENFUND.md`, { redirect: 'manual' }).catch(() => null);
   if (!r || !r.ok) return json({ error: 'No TOKENFUND.md found at the top of that public repository. Add it, then try again.' }, 422);
   const md = await r.text();
   if (md.length > 8000) return json({ error: 'TOKENFUND.md is too long. The limit is 8,000 characters.' }, 422);
@@ -188,12 +188,12 @@ async function admin(req, env, path) {
   const t = (req.headers.get('authorization') || '').replace('Bearer ', '');
   if (!env.ADMIN_TOKEN || t !== env.ADMIN_TOKEN) return new Response('no', { status: 401 });
   if (path === '/admin/projects') return json((await env.DB.prepare('SELECT * FROM projects ORDER BY created_at').all()).results);
+  if (path === '/admin/receipts') return json((await env.DB.prepare("SELECT * FROM receipts WHERE status NOT IN ('merged','closed','wrong_model') ORDER BY created_at").all()).results);
   const b = await req.json();
   if (path === '/admin/review') {
     await env.DB.prepare('UPDATE projects SET status=?, note=?, image=?, reviewed_at=? WHERE slug=?').bind(b.status, b.note || '', b.image || '', Date.now(), b.slug).run();
     return json({ ok: true });
   }
-  if (path === '/admin/receipts') return json((await env.DB.prepare("SELECT * FROM receipts WHERE status NOT IN ('merged','closed','wrong_model') ORDER BY created_at").all()).results);
   if (path === '/admin/receipt') {
     await env.DB.prepare('UPDATE receipts SET status=?, gh_user=? WHERE session=?').bind(b.status, b.gh_user || '', b.session).run();
     const c = await env.DB.prepare("SELECT coalesce(sum(case when status='merged' then tokens end),0) m, coalesce(sum(case when status='open' then tokens end),0) o, count(case when status='merged' then 1 end) pm, count(case when status='open' then 1 end) po FROM receipts WHERE slug=?").bind(b.slug).first();
