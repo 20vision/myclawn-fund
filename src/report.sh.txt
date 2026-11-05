@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# tokenfund: report a project as dangerous. Your report is public and tied to your GitHub account.
+set -uo pipefail
+API=@@API@@; SLUG='@@SLUG@@'
+say() { printf '\n\033[1;35mtokenfund\033[0m %s\n' "$*"; }
+die() { say "$*"; exit 1; }
+for c in curl gh python3; do command -v "$c" >/dev/null || die "Please install $c first."; done
+gh auth status >/dev/null 2>&1 || die "Please run: gh auth login. Then try again."
+@@ID@@
+read -r -p "What's dangerous? " REASON < /dev/tty
+read -r -p "Evidence (file and line, or a link): " EVID < /dev/tty
+BODY="$(SLUG="$SLUG" REASON="$REASON" EVID="$EVID" python3 -c 'import json,os;print(json.dumps({"project":os.environ["SLUG"],"reason":os.environ["REASON"],"evidence":os.environ["EVID"]}))')"
+curl -sS -X POST -H "x-tf-key: $TF_KEY" -H 'content-type: application/json' -d "$BODY" "$API/api/report"; echo

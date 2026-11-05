@@ -7,3 +7,8 @@ CREATE TABLE IF NOT EXISTS events(slug TEXT, day TEXT, who TEXT, kind TEXT, PRIM
 CREATE TABLE IF NOT EXISTS images(slug TEXT PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, slug TEXT, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS receipts(session TEXT PRIMARY KEY, slug TEXT, pr INTEGER, tokens INTEGER, model TEXT, status TEXT, gh_user TEXT DEFAULT '', created_at INTEGER);
+CREATE TABLE IF NOT EXISTS identities(login TEXT PRIMARY KEY, key_hash TEXT, gh_created INTEGER, followers INTEGER DEFAULT 0, repos INTEGER DEFAULT 0, x_handle TEXT DEFAULT '', strikes INTEGER DEFAULT 0, banned INTEGER DEFAULT 0, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS nonces(nonce TEXT PRIMARY KEY, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, target TEXT, reporter TEXT, reason TEXT, evidence TEXT, status TEXT DEFAULT 'open', created_at INTEGER, UNIQUE(kind,target,reporter));
+CREATE TABLE IF NOT EXISTS votes(report_id INTEGER, voter TEXT, vote TEXT, weight REAL, PRIMARY KEY(report_id,voter));
+CREATE TABLE IF NOT EXISTS audits(slug TEXT, sha TEXT, login TEXT, verdict TEXT, summary TEXT, created_at INTEGER, PRIMARY KEY(slug,sha,login));

@@ -43,6 +43,7 @@ SETTINGS='{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedC
 RUN="runs/$SLUG-$$"
 git clone --quiet --depth 50 "https://github.com/$REPO" "$P" || die "Could not download the project."
 cd "$P" || exit 1
+@@ID@@
 S=""
 release() { [ -n "$S" ] && curl -fsS -m 10 -X POST "$API/api/release/$S" >/dev/null 2>&1; S=""; }
 trap 'release; as_w rm -rf "$RUN"; say "Stopped. Tokens used: $USED"; exit 0' INT TERM
@@ -59,7 +60,7 @@ while :; do
   git fetch --quiet --depth 50 origin HEAD && git reset --quiet --hard FETCH_HEAD && git clean -fdxq
   # The agent gets a fresh copy in its own account, so nothing it writes runs or lands here unchecked.
   as_w bash -c "rm -rf '$RUN' && mkdir -p runs && git clone --quiet --depth 1 'https://github.com/$REPO' '$RUN' && find '$RUN' -type l -not -path '*/.git/*' -delete" || die "Could not prepare the project."
-  S="$(curl -fsS -X POST "$API/api/session/$SLUG")" || die "This project is closed, or the site can't be reached."
+  S="$(curl -fsS -X POST -H "x-tf-key: $TF_KEY" "$API/api/session/$SLUG?sha=$(git rev-parse HEAD)")" || die "This project is closed, your account is banned, or the site can't be reached."
   M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
   as_w bash -c "cd '$RUN' && exec ~/.local/bin/claude -p \"\$0\" \"\$@\" < /dev/null > ../$(basename "$RUN").json 2> ../$(basename "$RUN").err" \
     "Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns." ${M[@]+"${M[@]}"} \
