@@ -12,3 +12,5 @@ CREATE TABLE IF NOT EXISTS nonces(nonce TEXT PRIMARY KEY, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, target TEXT, reporter TEXT, reason TEXT, evidence TEXT, status TEXT DEFAULT 'open', created_at INTEGER, UNIQUE(kind,target,reporter));
 CREATE TABLE IF NOT EXISTS votes(report_id INTEGER, voter TEXT, vote TEXT, weight REAL, PRIMARY KEY(report_id,voter));
 CREATE TABLE IF NOT EXISTS audits(slug TEXT, sha TEXT, login TEXT, verdict TEXT, summary TEXT, created_at INTEGER, PRIMARY KEY(slug,sha,login));
+CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT, login TEXT, action TEXT, note TEXT, created_at INTEGER);
+CREATE INDEX IF NOT EXISTS actions_slug ON actions(slug,created_at);
