@@ -70,7 +70,16 @@ for (const i of await admin('/admin/identities')) {
 const final = await admin('/admin/projects');
 const rows = final.filter(p => p.status === 'live').map(p => ({ slug: p.slug, copies: p.copies, sessions: p.sessions, open: p.prs_open, merged: p.prs_merged, tokens_open: p.tokens_open, tokens_merged: p.tokens_merged }));
 const status = { at: new Date().toISOString(), summary: '', ok: true, live: rows.length, pending: after.filter(p => p.status === 'pending').length, rejected: after.filter(p => p.status === 'rejected').length, funnel: rows, totals: rows.reduce((a, r) => ({ copies: a.copies + r.copies, sessions: a.sessions + r.sessions, prs: a.prs + r.open + r.merged, merged: a.merged + r.merged, tokens: a.tokens + r.tokens_open + r.tokens_merged }), { copies: 0, sessions: 0, prs: 0, merged: 0, tokens: 0 }) };
-status.summary = `${status.live} live, ${status.pending} in review, ${status.totals.sessions} sessions, ${status.totals.merged} merged`;
+// How the launch is received, so the panel shows it without opening anything.
+const j = async (u, h = {}) => { try { const r = await fetch(u, { headers: { 'user-agent': 'tokenfund-loop', ...h } }); return r.ok ? await r.json() : null; } catch { return null; } };
+const hn = await j('https://hn.algolia.com/api/v1/search?query=tokenfund.myclawn.com&restrictSearchableAttributes=url');
+const hits = hn ? hn.hits : [];
+let mb = null; try { const k = JSON.parse(readFileSync(`${HOME}/.config/moltbook/credentials.json`, 'utf8')).api_key; const m = await j('https://www.moltbook.com/api/v1/posts/55afc125-c2b1-46a4-afb4-74a7e7c4c88c', { authorization: `Bearer ${k}` }); mb = m && (m.post || m); } catch {}
+const repo = gh('repos/20vision/tokenfund');
+status.community = { hn_points: hits.reduce((a, h) => a + (h.points || 0), 0), hn_comments: hits.reduce((a, h) => a + (h.num_comments || 0), 0), hn_ids: hits.map(h => h.objectID), moltbook_up: mb ? mb.upvotes : null, moltbook_comments: mb ? mb.comment_count : null, stars: repo.stargazers_count, forks: repo.forks_count };
+const copied = rows.reduce((a, r) => a + r.copies, 0);
+status.summary = `HN ${status.community.hn_points} pts/${status.community.hn_comments} comments · Moltbook ${status.community.moltbook_up ?? '?'} up · ${repo.stargazers_count} stars · ${copied} copies, ${status.totals.sessions} sessions, ${status.totals.merged} merged`;
+status.summary_old = `${status.live} live, ${status.pending} in review, ${status.totals.sessions} sessions, ${status.totals.merged} merged`;
 mkdirSync(`${DIR}logs`, { recursive: true });
 writeFileSync(`${DIR}logs/status.json`, JSON.stringify(status, null, 1));
 appendFileSync(`${DIR}logs/metrics.jsonl`, JSON.stringify(status) + '\n');
