@@ -6,3 +6,7 @@ routes = [{ pattern = "tokenfund.myclawn.com", custom_domain = true }]
 binding = "DB"
 database_name = "tokenfund"
 database_id = "e9eae8bd-000d-4786-bc17-bee4de6f44e2"
+[[rules]]
+type = "Text"
+globs = ["**/*.sh.txt"]
+fallthrough = true

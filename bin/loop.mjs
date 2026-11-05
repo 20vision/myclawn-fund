@@ -46,6 +46,10 @@ const shrink = async p => {
 const projects = await admin('/admin/projects');
 for (const p of projects.filter(p => p.status === 'pending')) await review(p);
 const after = await admin('/admin/projects');
+for (const p of after.filter(p => p.status === 'live')) {
+  const tasks = p.context.split('\n').filter(l => /^\s*[-*] /.test(l)).map(l => l.replace(/^\s*[-*] /, '').trim()).filter(l => l.length > 4);
+  if (tasks.length) await admin('/admin/seed', { slug: p.slug, tasks });
+}
 for (const p of after.filter(p => p.status === 'live' && p.image.startsWith('https://raw.githubusercontent.com/'))) await shrink(p);
 // Credit rules live here because this is where GitHub, not the contributor, supplies the facts.
 const ageOk = u => Date.now() - new Date(gh(`users/${u}`).created_at).getTime() > 30 * 864e5;
