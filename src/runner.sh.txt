@@ -62,13 +62,14 @@ while :; do
   as_w bash -c "rm -rf '$RUN' && mkdir -p runs && git clone --quiet --depth 1 'https://github.com/$REPO' '$RUN' && find '$RUN' -type l -not -path '*/.git/*' -delete" || die "Could not prepare the project."
   S="$(curl -fsS -X POST -H "x-tf-key: $TF_KEY" "$API/api/session/$SLUG?sha=$(git rev-parse HEAD)")" || die "This project is closed, your account is banned, or the site can't be reached."
   M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
-  as_w bash -c "cd '$RUN' && exec ~/.local/bin/claude -p \"\$0\" \"\$@\" < /dev/null > ../$(basename "$RUN").json 2> ../$(basename "$RUN").err" \
-    "Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns." ${M[@]+"${M[@]}"} \
+  ARGS=(-p "Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns." ${M[@]+"${M[@]}"} \
     --setting-sources "" --settings "$SETTINGS" --strict-mcp-config --permission-mode dontAsk \
     --mcp-config "{\"mcpServers\":{\"tokenfund\":{\"type\":\"http\",\"url\":\"$API/mcp\"}}}" \
     --tools "Bash,Read,Edit,Write,Glob,Grep" \
     --allowedTools "mcp__tokenfund" "Bash" "Read(./**)" "Edit(./**)" "Write(./**)" \
-    --max-turns "$TURNS" --output-format json
+    --max-turns "$TURNS" --output-format json)
+  # Sent over stdin, because a login shell through sudo drops empty arguments.
+  { printf 'cd %q && exec ~/.local/bin/claude' "$RUN"; printf ' %q' "${ARGS[@]}"; printf ' < /dev/null > ~/%q 2> ~/%q\n' "$RUN.json" "$RUN.err"; } | as_w bash -s
   as_w cat "$RUN.json" > "$WORK/run.json" 2>/dev/null
   as_w cat "$RUN.err" > "$WORK/run.err" 2>/dev/null
   T="$(curl -fsS -m 30 --data-binary @"$WORK/run.json" "$API/api/usage/$S" 2>/dev/null)"
@@ -82,7 +83,7 @@ while :; do
   FAILS=0
   if ! as_w test -f "$RUN/.tokenfund-pr.md"; then
     release; EMPTY=$((EMPTY+1)); say "No finished change this round. Tokens used: $USED"
-    [ "$EMPTY" -ge 2 ] && { say "Nothing more to do right now."; break; }
+    [ "$EMPTY" -ge 2 ] && { curl -fsS -m 10 -X POST -H "x-tf-key: $TF_KEY" "$API/api/idle/$SLUG" >/dev/null 2>&1; say "Nothing more to do right now."; break; }
     continue
   fi
   EMPTY=0

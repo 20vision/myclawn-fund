@@ -255,6 +255,7 @@ async function mcp(req, env) {
       if (c.n >= 100) return text('The board is full. Pick an open task.', true);
       const now = Date.now();
       await env.DB.prepare("UPDATE tasks SET status='todo', owner='' WHERE slug=? AND owner=? AND status='doing'").bind(p.slug, ses.id).run();
+      await env.DB.prepare('UPDATE projects SET idle_at=0 WHERE slug=?').bind(p.slug).run();
       const r = await env.DB.prepare("INSERT INTO tasks(slug,title,detail,status,owner,lease_until,created_at,updated_at) VALUES(?,?,?,'doing',?,?,?,?)").bind(p.slug, title, clean(a?.detail, 500), ses.id, now + LEASE, now, now).run();
       return text(`Added and claimed as task ${r.meta.last_row_id}.`);
     }
@@ -447,19 +448,26 @@ const page = (title, desc, body, nonce) => new Response(`<!doctype html><html la
   headers: { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}' https://t.myclawn.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; connect-src 'self' https://t.myclawn.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'` },
 });
 const total = p => p.tokens_merged + p.tokens_open;
-const FEEDS = [['trending', 'Trending'], ['top', 'Top'], ['new', 'New'], ['foryou', 'For you']];
+const FEEDS = [['needs', 'Needs tokens'], ['trending', 'Trending'], ['top', 'Top'], ['new', 'New'], ['foryou', 'For you']];
 // Trending works like Reddit's hot: tokens in the last week, on a log scale, with newer projects getting a head start.
 const ranked = async (env, ctx, sort) => {
   const ps = await live(env, ctx);
   const safety = p => 1 + p.danger * p.danger;
   if (sort === 'new') return [...ps].sort((a, b) => b.created_at - a.created_at);
   if (sort === 'top') return [...ps].sort((a, b) => (total(b) + 1) / safety(b) - (total(a) + 1) / safety(a));
+  if (sort === 'needs') {
+    // High demand, few tokens so far. Demand is what people actually do: press +, run agents, leave open work. Finished projects sink by themselves.
+    const open = (await env.DB.prepare("SELECT slug, count(*) n FROM tasks WHERE status='todo' GROUP BY slug").all()).results;
+    const todo = Object.fromEntries(open.map(x => [x.slug, x.n]));
+    const need = p => Math.log10(1 + p.copies * 10 + p.sessions * 10 + (todo[p.slug] || 0) * 5) - .4 * Math.log10(1 + total(p)) - Math.log10(safety(p)) - (p.idle_at && !todo[p.slug] ? 5 : 0);
+    return [...ps].sort((a, b) => need(b) - need(a));
+  }
   const r = (await env.DB.prepare("SELECT slug, sum(tokens) t FROM receipts WHERE created_at>? AND status IN ('reported','open','merged') GROUP BY slug").bind(Date.now() - 7 * 864e5).all()).results;
   const week = Object.fromEntries(r.map(x => [x.slug, x.t]));
   const hot = p => Math.log10(1 + (week[p.slug] || 0) + p.sessions * 1000) - (Date.now() - p.created_at) / (7 * 864e5) / 2 - Math.log10(safety(p));
   return [...ps].sort((a, b) => hot(b) - hot(a));
 };
-const home = (ps, sort, n) => page('tokenfund: back open source with tokens, not money', 'Open source projects ranked by the harness tokens people give them. Press +, set a token limit, and your coding agent keeps working on the vision in a sandbox.', `<section class="hero"><h1>Fund visions with <em>tokens</em>, not money.</h1><p>Open source projects, powered by the tokens people give them. Press +, set your limit, and your coding agent keeps working on the vision until it's reached.</p></section><nav class="feeds">${FEEDS.map(([k, l]) => `<a href="/?sort=${k}" ${k === sort ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav><section class="grid" id="grid" data-sort="${sort}">${ps.map((p, i) => `<article class="card" data-words="${esc((p.title + ' ' + p.vision + ' ' + p.context).toLowerCase().slice(0, 800))}" data-slug="${esc(p.slug)}"><div class="top"><span class="rank">#${i + 1}</span><span class="tok">${fmt(total(p))} tokens</span>${p.danger > 0 ? '<span class="tok warn">Reported</span>' : ''}<span class="go" aria-hidden="true">↗</span></div><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2><p>${esc(p.vision)}</p><div class="frame">${pic(p)}<button class="plus" aria-label="Give tokens to ${esc(p.title)}" title="Give tokens" data-give="${esc(p.slug)}" data-name="${esc(p.title)}">+</button></div></article>`).join('') || '<p>The first projects are in review.</p>'}</section>`, n);
+const home = (ps, sort, n) => page('tokenfund: back open source with tokens, not money', 'Open source projects ranked by the harness tokens people give them. Press +, set a token limit, and your coding agent keeps working on the vision in a sandbox.', `<section class="hero"><h1>Fund visions with <em>tokens</em>, not money.</h1><p>Open source projects, powered by the tokens people give them. Press +, set your limit, and your coding agent keeps working on the vision until it's reached.</p></section><nav class="feeds">${FEEDS.map(([k, l]) => `<a href="/?sort=${k}" ${k === sort ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav><section class="grid" id="grid" data-sort="${sort}">${ps.map((p, i) => `<article class="card" data-words="${esc((p.title + ' ' + p.vision + ' ' + p.context).toLowerCase().slice(0, 800))}" data-slug="${esc(p.slug)}"><div class="top"><span class="rank">#${i + 1}</span><span class="tok">${fmt(total(p))} tokens</span>${p.danger > 0 ? '<span class="tok warn">Reported</span>' : ''}${p.idle_at ? '<span class="tok">Nothing needed now</span>' : ''}<span class="go" aria-hidden="true">↗</span></div><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2><p>${esc(p.vision)}</p><div class="frame">${pic(p)}<button class="plus" aria-label="Give tokens to ${esc(p.title)}" title="Give tokens" data-give="${esc(p.slug)}" data-name="${esc(p.title)}">+</button></div></article>`).join('') || '<p>The first projects are in review.</p>'}</section>`, n);
 const badge = async (env, login) => {
   const i = await identity(env, login);
   if (!i) return `<a href="/u/${esc(login)}">@${esc(login)}</a>`;
@@ -537,6 +545,12 @@ export default {
         return new Response(REPORT.replaceAll('@@API@@', ORIGIN).replaceAll('@@SLUG@@', p.slug).replace('@@ID@@', IDBLOCK), { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
       }
       if ((r = /^\/u\/([^/]+)$/.exec(path))) return await userPage(env, r[1].toLowerCase(), nonce);
+      if ((r = /^\/api\/idle\/([^/]+)$/.exec(path)) && req.method === 'POST') {
+        const me = await byKey(env, req), p = await liveOne(env, r[1]);
+        if (!me || !p) return json({ error: 'No.' }, 401);
+        await env.DB.prepare('UPDATE projects SET idle_at=? WHERE slug=?').bind(Date.now(), p.slug).run();
+        return json({ ok: true });
+      }
       if ((r = /^\/api\/usage\/([a-f0-9]{20})$/.exec(path)) && req.method === 'POST') return await usage(req, env, r[1]);
       if ((r = /^\/api\/receipt\/([a-f0-9]{20})$/.exec(path)) && req.method === 'POST') return await receipt(env, r[1], u.searchParams.get('pr'));
       if ((r = /^\/api\/release\/([a-f0-9]{20})$/.exec(path)) && req.method === 'POST') {
@@ -560,7 +574,7 @@ export default {
         return json({ ok: true });
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
-      if (path === '/') { const so = FEEDS.some(f => f[0] === u.searchParams.get('sort')) ? u.searchParams.get('sort') : 'trending'; return home(await ranked(env, ctx, so), so, nonce); }
+      if (path === '/') { const so = FEEDS.some(f => f[0] === u.searchParams.get('sort')) ? u.searchParams.get('sort') : 'needs'; return home(await ranked(env, ctx, so), so, nonce); }
       if (path === '/submit') return submitPage(nonce);
       const im = /^\/img\/([^/]+)$/.exec(path);
       if (im) return await image(env, ctx, req, im[1]);
