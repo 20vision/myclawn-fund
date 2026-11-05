@@ -637,6 +637,9 @@ export default {
       const im = /^\/img\/([^/]+)$/.exec(path);
       if (im) return await image(env, ctx, req, im[1]);
       if (path === '/safety') return safety(nonce);
+      if (path === '/fea6d5f7b274f9b8bcaef36e5b0cfaf0.txt') return new Response('fea6d5f7b274f9b8bcaef36e5b0cfaf0', { headers: { 'content-type': 'text/plain' } });
+      if (path === '/robots.txt') return new Response('User-agent: *\nDisallow: /api/\nDisallow: /admin\nSitemap: https://tokenfund.myclawn.com/sitemap.xml\n', { headers: { 'content-type': 'text/plain' } });
+      if (path === '/sitemap.xml') return new Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ['/', '/leaderboard', '/submit', '/safety'].map(p => '<url><loc>https://tokenfund.myclawn.com' + p + '</loc></url>').join('') + '</urlset>', { headers: { 'content-type': 'application/xml' } });
       if (path === '/llms.txt') return new Response(LLMS, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
       if (path === '/api/projects') return json((await live(env)).map(({ slug, owner, repo, title, vision, model_req, sessions, tokens_merged, tokens_open, prs_open, prs_merged }) => ({ slug, owner, repo, title, vision, required_model: model_req, sessions, tokens_merged, tokens_open, prs_open, prs_merged })));
       const m = /^\/p\/([^/]+)$/.exec(path);
