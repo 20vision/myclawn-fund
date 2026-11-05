@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS projects(
+ slug TEXT PRIMARY KEY, owner TEXT NOT NULL, repo TEXT NOT NULL, title TEXT NOT NULL, vision TEXT NOT NULL,
+ context TEXT NOT NULL, image TEXT DEFAULT '', image_path TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'pending',
+ note TEXT DEFAULT '', created_at INTEGER NOT NULL, reviewed_at INTEGER,
+ copies INTEGER DEFAULT 0, sessions INTEGER DEFAULT 0, prs_open INTEGER DEFAULT 0, prs_merged INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS events(slug TEXT, day TEXT, who TEXT, kind TEXT, PRIMARY KEY(slug,day,who,kind));
+CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY, slug TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS receipts(session TEXT PRIMARY KEY, slug TEXT, pr INTEGER, tokens INTEGER, model TEXT, status TEXT, gh_user TEXT DEFAULT '', created_at INTEGER);
