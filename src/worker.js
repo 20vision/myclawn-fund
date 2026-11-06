@@ -729,7 +729,7 @@ export default {
   async fetch(req, env, ctx) {
     const u = new URL(req.url), path = u.pathname, nonce = crypto.randomUUID().replace(/-/g, '');
     if (/^\/(p|go)\/20vision-tokenfund$/.test(path)) return Response.redirect(ORIGIN + path.replace('20vision-tokenfund', '20vision-myclawn-fund') + u.search, 301);
-    if ((u.hostname === 'tokenfund.myclawn.com') && req.method === 'GET' && /^\/(|thesis|safety|leaderboard|submit|p\/[^/]+|u\/[^/]+)$/.test(path) && (req.headers.get('accept') || '').includes('text/html')) return Response.redirect(ORIGIN + path + u.search, 301);
+    if (Date.now() > 1794000000000 && u.hostname === 'tokenfund.myclawn.com' && req.method === 'GET' && /^\/(|thesis|safety|leaderboard|submit|p\/[^/]+|u\/[^/]+)$/.test(path) && (req.headers.get('accept') || '').includes('text/html')) return Response.redirect(ORIGIN + path + u.search, 301);
     try {
       if (path === '/mcp') return req.method === 'POST' ? await mcp(req, env) : new Response('Use POST', { status: 405, headers: { allow: 'POST' } });
       if (path.startsWith('/admin/')) return await admin(req, env, path);
