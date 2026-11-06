@@ -14,3 +14,4 @@ CREATE TABLE IF NOT EXISTS votes(report_id INTEGER, voter TEXT, vote TEXT, weigh
 CREATE TABLE IF NOT EXISTS audits(slug TEXT, sha TEXT, login TEXT, verdict TEXT, summary TEXT, created_at INTEGER, PRIMARY KEY(slug,sha,login));
 CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT, login TEXT, action TEXT, note TEXT, created_at INTEGER);
 CREATE INDEX IF NOT EXISTS actions_slug ON actions(slug,created_at);
+ALTER TABLE projects ADD COLUMN build_tokens INTEGER DEFAULT 0;
