@@ -79,31 +79,39 @@ USED=0; PRS=0; EMPTY=0; FAILS=0
 FORK=""
 if [ "$BUDGET" -gt 0 ]; then say "Working on $REPO up to $BUDGET tokens. Press Ctrl-C to stop."; else say "Working on $REPO with no limit. Press Ctrl-C to stop."; fi
 while :; do
-  TURNS=40
-  if [ "$BUDGET" -gt 0 ]; then
-    LEFT=$((BUDGET-USED))
-    [ "$LEFT" -lt 30000 ] && break
-    TURNS=$((LEFT/8000)); [ "$TURNS" -lt 4 ] && TURNS=4; [ "$TURNS" -gt 40 ] && TURNS=40
-  fi
+  if [ "$BUDGET" -gt 0 ] && [ $((BUDGET-USED)) -lt 30000 ]; then break; fi
   git fetch --quiet --depth 50 origin HEAD && git reset --quiet --hard FETCH_HEAD && git clean -fdxq
   # The agent gets a fresh copy without git or links, so nothing it writes runs or lands here unchecked.
   rm -rf "$RUN" && mkdir -p "$RUN" && git archive HEAD | tar -x -C "$RUN" && find "$RUN" -type l -delete || die "Could not prepare the project."
   S="$(curl -fsS -X POST -H "x-tf-key: $TF_KEY" "$API/api/session/$SLUG?sha=$(git rev-parse HEAD)")" || die "This project is closed, your account is banned, or the site can't be reached."
   M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
-  ARGS=(-p "Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns." ${M[@]+"${M[@]}"} \
-    --setting-sources "" --settings "$SETTINGS" --strict-mcp-config --permission-mode dontAsk \
-    --mcp-config "{\"mcpServers\":{\"tokenfund\":{\"type\":\"http\",\"url\":\"$API/mcp\"}}}" \
-    --tools "Bash,Read,Edit,Write,Glob,Grep" \
-    --allowedTools "mcp__tokenfund" "Bash" "Read(./**)" "Edit(./**)" "Write(./**)" \
-    --disallowedTools "Read(~/**)" "Edit(~/**)" "Write(~/**)" \
-    --max-turns "$TURNS" --output-format json)
-  # Clean environment: none of your shell's keys or settings reach the agent.
-  (cd "$RUN" && exec env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM=dumb \
-    ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} "$CLAUDE" "${ARGS[@]}" < /dev/null > "$WORK/run.json" 2> "$WORK/run.err")
-  T="$(curl -fsS -m 30 --data-binary @"$WORK/run.json" "$API/api/usage/$S" 2>/dev/null)"
-  [ "$T" = wrong_model ] && { release; rm -rf "$WORK"; die "This project only accepts $MODEL, and your Claude plan ran another model. Nothing was sent."; }
-  case "$T" in ''|*[!0-9]*) T=0 ;; esac
-  USED=$((USED+T))
+  PROMPT="Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns."
+  RES=(); TRY=0; T=0; DONE_OK=0
+  # One work step = one task. If the agent runs out of turns, it continues the same task (up to 2 more times) instead of starting over.
+  while :; do
+    ARGS=(-p "$PROMPT" ${RES[@]+"${RES[@]}"} ${M[@]+"${M[@]}"} \
+      --setting-sources "" --settings "$SETTINGS" --strict-mcp-config --permission-mode dontAsk \
+      --mcp-config "{\"mcpServers\":{\"tokenfund\":{\"type\":\"http\",\"url\":\"$API/mcp\"}}}" \
+      --tools "Bash,Read,Edit,Write,Glob,Grep" \
+      --allowedTools "mcp__tokenfund" "Bash" "Read(./**)" "Edit(./**)" "Write(./**)" \
+      --disallowedTools "Read(~/**)" "Edit(~/**)" "Write(~/**)" \
+      --max-turns 80 --output-format json)
+    # Clean environment: none of your shell's keys or settings reach the agent.
+    (cd "$RUN" && exec env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM=dumb \
+      ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} "$CLAUDE" "${ARGS[@]}" < /dev/null > "$WORK/run.json" 2> "$WORK/run.err")
+    R="$(curl -fsS -m 30 --data-binary @"$WORK/run.json" "$API/api/usage/$S" 2>/dev/null)"
+    [ "$R" = wrong_model ] && { release; rm -rf "$WORK"; die "This project only accepts $MODEL, and your Claude plan ran another model. Nothing was sent."; }
+    case "$R" in ''|*[!0-9]*) R=0 ;; esac
+    T=$((T+R)); USED=$((USED+R))
+    grep -q '"subtype":"success"' "$WORK/run.json" && DONE_OK=1
+    [ -f "$RUN/.tokenfund-pr.md" ] && break
+    grep -q '"subtype":"error_max_turns"' "$WORK/run.json" || break
+    TRY=$((TRY+1)); [ "$TRY" -gt 2 ] && break
+    [ "$BUDGET" -gt 0 ] && [ $((BUDGET-USED)) -lt 30000 ] && break
+    SID="$(grep -o '"session_id":"[^"]*"' "$WORK/run.json" | head -1 | cut -d'"' -f4)"; [ -n "$SID" ] || break
+    say "Still working on the same task. Tokens used: $USED"
+    RES=(--resume "$SID"); PROMPT="You ran out of turns. Continue the same task from where you stopped and finish it, including writing .tokenfund-pr.md."
+  done
   if [ "$T" = 0 ]; then
     release; FAILS=$((FAILS+1))
     [ "$FAILS" -ge 2 ] && { sed -n 1,5p "$WORK/run.err" >&2; die "The agent couldn't run. Check your Claude Code login."; }
@@ -112,7 +120,10 @@ while :; do
   FAILS=0
   PRF="$RUN/.tokenfund-pr.md"
   if [ ! -f "$PRF" ] || [ -L "$PRF" ]; then
-    release; EMPTY=$((EMPTY+1)); say "No finished change this round. Tokens used: $USED"
+    release
+    # Only an agent that finished normally without a change means "nothing to do". Running out of turns doesn't.
+    if [ "$DONE_OK" = 0 ]; then say "Couldn't finish this task in time. Trying the next one. Tokens used: $USED"; continue; fi
+    EMPTY=$((EMPTY+1)); say "No finished change this round. Tokens used: $USED"
     [ "$EMPTY" -ge 2 ] && { curl -fsS -m 10 -X POST -H "x-tf-key: $TF_KEY" "$API/api/idle/$SLUG" >/dev/null 2>&1; say "Nothing more to do right now."; break; }
     continue
   fi

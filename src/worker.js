@@ -403,7 +403,9 @@ async function usage(req, env, id) {
   if (!t) return json({ error: 'Unreadable usage report.' }, 400);
   // Runs on another model count nothing, and the runner stops instead of sending a pull request.
   if (p && p.model_req && !t.total && Object.keys(run.modelUsage).length) return new Response('wrong_model', { headers: { 'content-type': 'text/plain' } });
-  await env.DB.prepare('UPDATE sessions SET tokens=?, model=? WHERE id=? AND tokens=0').bind(t.total, t.model, id).run();
+  // A work step can continue up to 3 times after running out of turns; each report adds, capped per step.
+  const up = await env.DB.prepare('UPDATE sessions SET tokens=min(tokens+?, ?), model=?, reports=reports+1 WHERE id=? AND reports<4').bind(t.total, CAP, t.model, id).run();
+  if (!up.meta.changes) return new Response('0', { headers: { 'content-type': 'text/plain' } });
   return new Response(String(t.total), { headers: { 'content-type': 'text/plain' } });
 }
 async function receipt(env, id, prUrl) {
