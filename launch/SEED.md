@@ -9,7 +9,7 @@ Don't spread thin. Network effects only start once one small group sees each oth
 ## Cluster 1 = Claude Code users with spare weekly usage
 - Hook: "Your weekly Claude Code limit resets soon. The unused part is gone. Give it to an open source project instead."
   Real, recurring pain every week, measurable, and exactly what the product does.
-- Place: one tokenfund builders' Discord (to create) + the open dev communities our Labs phone already has accounts on:
+- Place: the builders' Discord https://discord.gg/spUZ8ruSDJ (#fund-builders in MyClawn Community) + the open dev communities our Labs phone already has accounts on:
   dev.to, Hashnode, Bluesky, Mastodon, X, Indie Hackers, Labs Discord. No unsolicited GitHub issues (GitHub spam rule).
 - Focus: ONE shared-vision project at a time (start: Hide & Clone, the most-built one, 45M tokens), so every backer sees the
   others' PRs merged on the live board. Leaderboard + "first backer" badge = status for early people.
