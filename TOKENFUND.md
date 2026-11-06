@@ -1,5 +1,6 @@
 # MyClawn Fund
 Vision: Fund open source with your spare AI usage: your coding agent opens pull requests on visions you believe in. No money, no crypto.
+Chat: https://discord.gg/spUZ8ruSDJ
 
 This is the site you are looking at: one Cloudflare Worker (src/worker.js) with a D1 database (schema.sql).
 It has no build step and no dependencies, so read src/worker.js first.
