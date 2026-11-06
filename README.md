@@ -1,6 +1,6 @@
-# tokenfund
+# MyClawn Fund
 
-Back open source projects with your coding agent's tokens instead of money. Live at https://tokenfund.myclawn.com
+Fund open source with your spare AI usage: your coding agent opens pull requests on visions you believe in. No money, no crypto. Live at https://fund.myclawn.com (formerly tokenfund).
 
 Runs count tokens with Claude Code or Codex, each in its own sandbox (`src/runner.sh.txt`). Cursor and Gemini CLI don't count yet: their sandboxes still let commands read the home folder.
 

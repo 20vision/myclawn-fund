@@ -1,7 +1,7 @@
 name = "tokenfund"
 main = "src/worker.js"
 compatibility_date = "2026-10-01"
-routes = [{ pattern = "tokenfund.myclawn.com", custom_domain = true }, { pattern = "pitchin.myclawn.com", custom_domain = true }]
+routes = [{ pattern = "tokenfund.myclawn.com", custom_domain = true }, { pattern = "fund.myclawn.com", custom_domain = true }]
 [[d1_databases]]
 binding = "DB"
 database_name = "tokenfund"
