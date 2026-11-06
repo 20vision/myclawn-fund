@@ -19,6 +19,7 @@ for N in $(gh pr list -R "$REPO" --state open --json number -q '.[].number'); do
   [ $((WEEKLY-USED)) -lt 20000 ] && { echo "week budget used ($USED)"; break; }
   SHA=$(gh pr view "$N" -R "$REPO" --json headRefOid -q .headRefOid)
   grep -q "\"sha\":\"$SHA\"" "$LOG" 2>/dev/null && continue   # this exact version already reviewed
+  { gh api "repos/$REPO/issues/$N/comments" --paginate -q ".[].body"; gh api "repos/$REPO/pulls/$N/reviews" --paginate -q ".[].body"; } 2>/dev/null | grep -q "fund-review $SHA" && continue
   W=$(mktemp -d /tmp/tf-review.XXXXXX); trap 'rm -rf "$W"' EXIT
   git clone --quiet --depth 100 "https://github.com/$REPO" "$W/repo"
   git -C "$W/repo" fetch --quiet origin "pull/$N/head:pr"
@@ -39,10 +40,18 @@ for N in $(gh pr list -R "$REPO" --state open --json number -q '.[].number'); do
   BODY="$(jq -r '"**Review: \(.verdict)**\n\n\(.summary)\n\n" + ((.issues//[])|map("- "+.)|join("\n")) + "\n\nTests: \(.tests)"' <<<"$R")"
   ACT=$V
   case "$V" in
-    merge) if [ "$(jq -r .tests <<<"$R")" != fail ]; then gh pr review "$N" -R "$REPO" --comment -b "$BODY"; gh pr merge "$N" -R "$REPO" --squash --delete-branch=false || ACT=merge_failed
-           else gh pr review "$N" -R "$REPO" --comment -b "$BODY"; ACT=changes; fi ;;
-    close) gh pr review "$N" -R "$REPO" --comment -b "$BODY"; gh pr close "$N" -R "$REPO" ;;
-    *)     gh pr review "$N" -R "$REPO" --comment -b "$BODY" ;;
+    merge) if [ "$(jq -r .tests <<<"$R")" != fail ]; then gh pr review "$N" -R "$REPO" --comment -b "$BODY
+
+<sub>fund-review $SHA</sub>"; gh pr merge "$N" -R "$REPO" --squash --delete-branch=false || ACT=merge_failed
+           else gh pr review "$N" -R "$REPO" --comment -b "$BODY
+
+<sub>fund-review $SHA</sub>"; ACT=changes; fi ;;
+    close) gh pr review "$N" -R "$REPO" --comment -b "$BODY
+
+<sub>fund-review $SHA</sub>"; gh pr close "$N" -R "$REPO" ;;
+    *)     gh pr review "$N" -R "$REPO" --comment -b "$BODY
+
+<sub>fund-review $SHA</sub>" ;;
   esac
   jq -cn --argjson pr "$N" --arg sha "$SHA" --arg act "$ACT" --argjson t "$T" '{pr:$pr,sha:$sha,action:$act,tokens:$t,at:(now|todate)}' | sed 's/"pr":\([0-9]*\),"sha"/"pr":\1,"sha"/' >> "$LOG"
   echo "PR $N: $ACT ($T tokens)"
