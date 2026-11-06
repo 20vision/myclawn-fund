@@ -1,20 +1,29 @@
 #!/usr/bin/env bash
 # tokenfund: your agent keeps working on @@REPO@@ until your limit. Stop any time with Ctrl-C.
-# It uses your existing Claude Code login. No password, no new user, no second login.
-# The agent works on a throwaway copy in a temp folder, inside Claude Code's own sandbox: it can't read your home folder,
+# It uses your existing Claude Code or Codex login. No password, no new user, no second login.
+# The agent works on a throwaway copy in a temp folder, inside its harness's own sandbox: it can't read your home folder,
 # and its network is limited to package registries. Your GitHub login stays with you: this script opens the pull requests.
 set -uo pipefail
 API=@@API@@; SLUG='@@SLUG@@'; REPO='@@REPO@@'; BUDGET=@@BUDGET@@; MODEL='@@MODEL@@'; WEEKLY=@@WEEKLY@@; MODE='@@MODE@@'
 say() { printf '\n\033[1;35mtokenfund\033[0m %s\n' "$*"; }
 die() { say "$*"; exit 1; }
-for c in git curl gh claude tar; do command -v "$c" >/dev/null || die "Please install $c first."; done
+# Which agent runs: Claude Code if it's installed, otherwise Codex. Pick one with TF_HARNESS=claude or TF_HARNESS=codex.
+HARNESS="${TF_HARNESS:-@@HARNESS@@}"
+if [ -z "$HARNESS" ]; then
+  if [ -n "$MODEL" ] || command -v claude >/dev/null; then HARNESS=claude; elif command -v codex >/dev/null; then HARNESS=codex; else HARNESS=claude; fi
+fi
+case "$HARNESS" in claude) AGENT="Claude Code" ;; codex) AGENT=Codex ;; *) die "Unknown agent \"$HARNESS\". Use TF_HARNESS=claude or TF_HARNESS=codex." ;; esac
+# Only Claude Code reports which model ran, so a project that requires a model needs Claude Code.
+[ -n "$MODEL" ] && [ "$HARNESS" != claude ] && die "This project only accepts $MODEL, and only Claude Code reports which model ran. Please use Claude Code for it."
+for c in git curl gh tar "$HARNESS"; do command -v "$c" >/dev/null || die "Please install $c first."; done
 gh auth status >/dev/null 2>&1 || die "Please run: gh auth login. Then press + again."
-CLAUDE="$(command -v claude)"
+BIN="$(command -v "$HARNESS")"
 WORK="$(cd "$(mktemp -d /tmp/tokenfund.XXXXXX 2>/dev/null || mktemp -d)" && pwd -P)"
 case "$WORK/" in "$HOME"/*) die "The temp folder is inside your home folder, which the sandbox hides. Set TMPDIR=/tmp and try again." ;; esac
 P="$WORK/project"; RUN="$WORK/run"
 if [ "$(uname -s)" = Linux ]; then
-  for c in bwrap socat; do command -v "$c" >/dev/null || die "Claude Code's sandbox needs bubblewrap and socat. Please install them (e.g. sudo apt install bubblewrap socat), then try again."; done
+  NEED=bwrap; [ "$HARNESS" = claude ] && NEED="bwrap socat"
+  for c in $NEED; do command -v "$c" >/dev/null || die "$AGENT's sandbox needs bubblewrap${NEED#bwrap}. Please install it (e.g. sudo apt install bubblewrap socat), then try again."; done
   if ! bwrap --unshare-user --ro-bind / / true 2>/dev/null; then
     say "Your system blocks the sandbox (Ubuntu 24+ default). Allowing it needs your password once."
     sudo -v || die "Nothing was changed."
@@ -23,9 +32,18 @@ if [ "$(uname -s)" = Linux ]; then
     bwrap --unshare-user --ro-bind / / true 2>/dev/null || die "The sandbox still can't start. Nothing was sent."
   fi
 fi
-env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} "$CLAUDE" auth status >/dev/null 2>&1 \
-  || die "Claude Code isn't logged in here. Run: claude, log in, then try again."
+if [ "$HARNESS" = codex ]; then
+  env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" ${CODEX_HOME:+CODEX_HOME="$CODEX_HOME"} "$BIN" login status >/dev/null 2>&1 \
+    || die "Codex isn't logged in here. Run: codex login, then try again."
+  case "$HOME" in *'"'*|*\\*) die "Your home folder path has a quote or backslash, which Codex's sandbox settings can't hold." ;; esac
+else
+  env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} "$BIN" auth status >/dev/null 2>&1 \
+    || die "Claude Code isn't logged in here. Run: claude, log in, then try again."
+fi
+DOMAINS="registry.npmjs.org pypi.org files.pythonhosted.org crates.io static.crates.io index.crates.io proxy.golang.org"
 SETTINGS='{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"autoAllowBashIfSandboxed":true,"filesystem":{"denyRead":["~/"],"allowRead":["."]},"network":{"allowedDomains":["registry.npmjs.org","pypi.org","files.pythonhosted.org","crates.io","static.crates.io","index.crates.io","proxy.golang.org"]}}}'
+# Codex: its own sandbox (bubblewrap on Linux, Seatbelt on Mac) with your home folder unreadable and network only to package registries.
+CODEX_PERM="permissions={tokenfund={extends=\":workspace\",filesystem={\"$HOME\"=\"deny\"},network={enabled=true,mode=\"full\",domains={$(for d in $DOMAINS; do printf '"%s"="allow",' "$d"; done | sed 's/,$//')}}}}"
 git clone --quiet --depth 50 "https://github.com/$REPO" "$P" || die "Could not download the project."
 cd "$P" || exit 1
 @@ID@@
@@ -33,7 +51,7 @@ cd "$P" || exit 1
 STATE="$HOME/.local/state/tokenfund"; NAME="tokenfund-$SLUG"
 install_daily() {
   mkdir -p "$STATE"; H=$((9 + RANDOM % 12)); MI=$((RANDOM % 60))
-  CMD="cd /tmp && curl -fsSL '$API/a/$SLUG?mode=daily' -o '$STATE/$SLUG.sh' && bash '$STATE/$SLUG.sh' >> '$STATE/$SLUG.log' 2>&1"
+  CMD="cd /tmp && curl -fsSL '$API/a/$SLUG?mode=daily&h=$HARNESS' -o '$STATE/$SLUG.sh' && bash '$STATE/$SLUG.sh' >> '$STATE/$SLUG.log' 2>&1"
   if [ "$(uname -s)" = Darwin ]; then
     PL="$HOME/Library/LaunchAgents/com.myclawn.$NAME.plist"; mkdir -p "$(dirname "$PL")"
     cat > "$PL" <<PLIST
@@ -93,22 +111,35 @@ while :; do
   RES=(); TRY=0; T=0; DONE_OK=0
   # One work step = one task. If the agent runs out of turns, it continues the same task (up to 2 more times) instead of starting over.
   while :; do
-    ARGS=(-p "$PROMPT" ${RES[@]+"${RES[@]}"} ${M[@]+"${M[@]}"} \
-      --setting-sources "" --settings "$SETTINGS" --strict-mcp-config --permission-mode dontAsk \
-      --mcp-config "{\"mcpServers\":{\"tokenfund\":{\"type\":\"http\",\"url\":\"$API/mcp\"}}}" \
-      --tools "Bash,Read,Edit,Write,Glob,Grep" \
-      --allowedTools "mcp__tokenfund" "Bash" "Read(./**)" "Edit(./**)" "Write(./**)" \
-      --disallowedTools "Read(~/**)" "Edit(~/**)" "Write(~/**)" \
-      --max-turns 80 --output-format json)
+    if [ "$HARNESS" = codex ]; then
+      # Your Codex config, rules, apps and web search stay off; only the tokenfund MCP server is added.
+      ARGS=(exec --json --ephemeral --skip-git-repo-check --ignore-user-config --ignore-rules \
+        --enable network_proxy --disable apps -c 'web_search="disabled"' \
+        -c 'default_permissions="tokenfund"' -c "$CODEX_PERM" -c 'approval_policy="never"' \
+        -c "mcp_servers.tokenfund.url=\"$API/mcp\"" -c 'mcp_servers.tokenfund.default_tools_approval_mode="approve"' "$PROMPT")
+    else
+      ARGS=(-p "$PROMPT" ${RES[@]+"${RES[@]}"} ${M[@]+"${M[@]}"} \
+        --setting-sources "" --settings "$SETTINGS" --strict-mcp-config --permission-mode dontAsk \
+        --mcp-config "{\"mcpServers\":{\"tokenfund\":{\"type\":\"http\",\"url\":\"$API/mcp\"}}}" \
+        --tools "Bash,Read,Edit,Write,Glob,Grep" \
+        --allowedTools "mcp__tokenfund" "Bash" "Read(./**)" "Edit(./**)" "Write(./**)" \
+        --disallowedTools "Read(~/**)" "Edit(~/**)" "Write(~/**)" \
+        --max-turns 80 --output-format json)
+    fi
     # Clean environment: none of your shell's keys or settings reach the agent.
     (cd "$RUN" && exec env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM=dumb \
-      ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} "$CLAUDE" "${ARGS[@]}" < /dev/null > "$WORK/run.json" 2> "$WORK/run.err")
-    R="$(curl -fsS -m 30 --data-binary @"$WORK/run.json" "$API/api/usage/$S" 2>/dev/null)"
-    [ "$R" = wrong_model ] && { release; rm -rf "$WORK"; die "This project only accepts $MODEL, and your Claude plan ran another model. Nothing was sent."; }
+      ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} ${CODEX_HOME:+CODEX_HOME="$CODEX_HOME"} "$BIN" "${ARGS[@]}" < /dev/null > "$WORK/run.json" 2> "$WORK/run.err")
+    # Codex reports usage in its turn.completed event; only that line is sent.
+    if [ "$HARNESS" = codex ]; then grep '^{"type":"turn.completed"' "$WORK/run.json" | tail -n 1 > "$WORK/usage.json"; else cp "$WORK/run.json" "$WORK/usage.json"; fi
+    R="$(curl -fsS -m 30 --data-binary @"$WORK/usage.json" "$API/api/usage/$S?h=$HARNESS" 2>/dev/null)"
+    [ "$R" = wrong_model ] && { release; rm -rf "$WORK"; die "This project only accepts $MODEL, and your agent ran another model. Nothing was sent."; }
     case "$R" in ''|*[!0-9]*) R=0 ;; esac
     T=$((T+R)); USED=$((USED+R))
     grep -q '"subtype":"success"' "$WORK/run.json" && DONE_OK=1
+    [ "$HARNESS" = codex ] && [ -s "$WORK/usage.json" ] && DONE_OK=1
     [ -f "$RUN/.tokenfund-pr.md" ] && break
+    # Codex has no turn limit, so a step never needs continuing.
+    [ "$HARNESS" = codex ] && break
     grep -q '"subtype":"error_max_turns"' "$WORK/run.json" || break
     TRY=$((TRY+1)); [ "$TRY" -gt 2 ] && break
     [ "$BUDGET" -gt 0 ] && [ $((BUDGET-USED)) -lt 30000 ] && break
@@ -118,7 +149,7 @@ while :; do
   done
   if [ "$T" = 0 ]; then
     release; FAILS=$((FAILS+1))
-    [ "$FAILS" -ge 2 ] && { sed -n 1,5p "$WORK/run.err" >&2; die "The agent couldn't run. Check your Claude Code login."; }
+    [ "$FAILS" -ge 2 ] && { sed -n 1,5p "$WORK/run.err" >&2; die "The agent couldn't run. Check your $AGENT login."; }
     continue
   fi
   FAILS=0
@@ -139,9 +170,9 @@ while :; do
   if git diff --cached --quiet; then release; continue; fi
   # Last check before anything leaves this computer.
   if git diff --cached --summary | grep -qE 'mode 1(2|6)0000' \
-    || git diff --cached --name-only | grep -qE '^(\.github/workflows/|\.claude/|\.mcp\.json|\.git)' \
+    || git diff --cached --name-only | grep -qE '^(\.github/workflows/|\.claude/|\.codex/|\.mcp\.json|\.git)' \
     || [ "$(git diff --cached --numstat | awk '{s+=$1+$2} END {print s+0}')" -gt 3000 ] \
-    || git diff --cached | grep -qE 'BEGIN [A-Z ]*PRIVATE KEY|sk-ant-|ghp_[A-Za-z0-9]{20}|github_pat_|AKIA[0-9A-Z]{16}|\.claude/\.credentials'; then
+    || git diff --cached | grep -qE 'BEGIN [A-Z ]*PRIVATE KEY|sk-ant-|ghp_[A-Za-z0-9]{20}|github_pat_|sk-proj-|AKIA[0-9A-Z]{16}|\.claude/\.credentials|\.codex/auth\.json'; then
     git reset --quiet; release; say "Blocked a change that failed the safety check. It was not sent."; continue
   fi
   git -c user.useConfigOnly=false commit --quiet --no-verify -m "${TITLE:-tokenfund contribution}"

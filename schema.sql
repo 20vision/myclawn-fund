@@ -20,3 +20,4 @@ ALTER TABLE projects ADD COLUMN blocked TEXT DEFAULT '';
 CREATE TABLE IF NOT EXISTS pledges(login TEXT, slug TEXT, weekly INTEGER, created_at INTEGER, stopped_at INTEGER DEFAULT 0, PRIMARY KEY(login, slug));
 ALTER TABLE sessions ADD COLUMN task INTEGER DEFAULT 0;
 ALTER TABLE sessions ADD COLUMN reports INTEGER DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN harness TEXT DEFAULT 'claude';

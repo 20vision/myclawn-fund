@@ -10,11 +10,11 @@ const slice = (from, to) => {
   assert.ok(a >= 0 && b > a, `could not find ${from} in worker.js`);
   return src.slice(a, b);
 };
-const { parseFile, tokensFrom, CAP } = new Function(
+const { parseFile, tokensFrom, codexTokensFrom, CAP } = new Function(
   `${slice('function parseFile', 'async function submit')}
    ${slice('const CAP', 'const newSession')}
    ${slice('function tokensFrom', 'async function receipt')}
-   return { parseFile, tokensFrom, CAP };`
+   return { parseFile, tokensFrom, codexTokensFrom, CAP };`
 )();
 
 test('parseFile reads title, vision, image, model and context', () => {
@@ -108,4 +108,40 @@ test('parseFile reads owner controls and keeps them out of the context', () => {
   const f = parseFile('# P\nVision: v\nStatus: Paused\nMax open PRs: 3\nctx');
   assert.equal(f.state, 'paused'); assert.equal(f.maxOpen, 3); assert.equal(f.context, 'ctx');
   assert.equal(parseFile('Status: whatever').state, 'open');
+});
+
+// Shape from the Codex docs (developers.openai.com/codex/noninteractive) and codex-rs/exec/src/exec_events.rs.
+const CODEX_DOC = '{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122,"reasoning_output_tokens":0}}';
+
+test('codexTokensFrom counts non-cached input plus output from the documented turn.completed', () => {
+  assert.deepEqual(codexTokensFrom(CODEX_DOC), { total: 24763 - 24448 + 122, model: '' });
+});
+
+test('codexTokensFrom takes the last running total, not the sum, and ignores cache writes and reasoning', () => {
+  const a = '{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":5}}';
+  const b = '{"type":"turn.completed","usage":{"input_tokens":5000,"cached_input_tokens":3000,"cache_write_input_tokens":900,"output_tokens":50,"reasoning_output_tokens":40}}';
+  assert.equal(codexTokensFrom(a + '\n' + b + '\n').total, 2050);
+});
+
+test('codexTokensFrom rejects other events, junk and missing usage', () => {
+  assert.equal(codexTokensFrom(''), null);
+  assert.equal(codexTokensFrom('{"type":"thread.started","thread_id":"x"}'), null);
+  assert.equal(codexTokensFrom('{"type":"turn.completed"}'), null);
+  assert.equal(codexTokensFrom('not json'), null);
+  assert.equal(codexTokensFrom('{"modelUsage":{"m":{"inputTokens":5}}}'), null);
+});
+
+test('codexTokensFrom ignores negative and non-numeric values, never counts cached reads, and caps at CAP', () => {
+  assert.equal(codexTokensFrom('{"type":"turn.completed","usage":{"input_tokens":-9,"cached_input_tokens":0,"output_tokens":"7"}}').total, 0);
+  assert.equal(codexTokensFrom('{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":9000000,"output_tokens":3}}').total, 3);
+  assert.equal(codexTokensFrom(`{"type":"turn.completed","usage":{"input_tokens":${10 * CAP},"cached_input_tokens":0,"output_tokens":0}}`).total, CAP);
+});
+
+test('runner script is valid bash and knows both harnesses', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const r = (await import('node:fs')).readFileSync(new URL('../src/runner.sh.txt', import.meta.url), 'utf8');
+  assert.match(r, /HARNESS="\$\{TF_HARNESS:-@@HARNESS@@\}"/);
+  assert.match(r, /codex\) AGENT=Codex/);
+  assert.match(r, /\?h=\$HARNESS/);
+  execFileSync('bash', ['-n', '-c', r]);
 });
