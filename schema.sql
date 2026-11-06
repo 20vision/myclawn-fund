@@ -15,3 +15,4 @@ CREATE TABLE IF NOT EXISTS audits(slug TEXT, sha TEXT, login TEXT, verdict TEXT,
 CREATE TABLE IF NOT EXISTS actions(id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT, login TEXT, action TEXT, note TEXT, created_at INTEGER);
 CREATE INDEX IF NOT EXISTS actions_slug ON actions(slug,created_at);
 ALTER TABLE projects ADD COLUMN build_tokens INTEGER DEFAULT 0;
+ALTER TABLE projects ADD COLUMN chat TEXT DEFAULT ''; ALTER TABLE projects ADD COLUMN links TEXT DEFAULT '';

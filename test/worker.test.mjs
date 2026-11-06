@@ -35,7 +35,7 @@ test('parseFile keys are case-insensitive and CRLF is handled', () => {
 
 test('parseFile returns empty strings when fields are missing', () => {
   const f = parseFile('just text');
-  assert.deepEqual(f, { title: '', vision: '', image: '', model: '', context: 'just text' });
+  assert.deepEqual(f, { title: '', vision: '', image: '', model: '', location: '', chat: '', links: '', context: 'just text' });
 });
 
 test('parseFile keeps the first title and ## headings stay in the context', () => {
