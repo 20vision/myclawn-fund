@@ -35,7 +35,7 @@ test('parseFile keys are case-insensitive and CRLF is handled', () => {
 
 test('parseFile returns empty strings when fields are missing', () => {
   const f = parseFile('just text');
-  assert.deepEqual(f, { title: '', vision: '', image: '', model: '', location: '', chat: '', links: '', context: 'just text' });
+  assert.deepEqual(f, { title: '', vision: '', image: '', model: '', location: '', chat: '', links: '', block: '', context: 'just text' });
 });
 
 test('parseFile keeps the first title and ## headings stay in the context', () => {
@@ -96,4 +96,10 @@ test('/list agent instructions include the template and the submit call', () => 
   assert.match(t, /# My Project\nVision:/);
   assert.match(t, /POST https:\/\/tokenfund\.myclawn\.com\/api\/submit/);
   assert.ok(!t.includes('${'));
+});
+
+test('parseFile reads the Block line and keeps it out of the context', () => {
+  const f = parseFile('# P\nVision: v\nBlock: @bad-user, other\nreal context');
+  assert.equal(f.block, '@bad-user, other');
+  assert.equal(f.context, 'real context');
 });

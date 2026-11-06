@@ -1,52 +1,39 @@
 #!/usr/bin/env bash
 # tokenfund: your agent keeps working on @@REPO@@ until your limit. Stop any time with Ctrl-C.
-# The agent runs as a separate computer user with no root and no access to your files, inside Claude Code's own sandbox.
-# Your GitHub login stays with you: this script opens the pull requests, and the agent never sees that login.
+# It uses your existing Claude Code login. No password, no new user, no second login.
+# The agent works on a throwaway copy in a temp folder, inside Claude Code's own sandbox: it can't read your home folder,
+# and its network is limited to package registries. Your GitHub login stays with you: this script opens the pull requests.
 set -uo pipefail
 API=@@API@@; SLUG='@@SLUG@@'; REPO='@@REPO@@'; BUDGET=@@BUDGET@@; MODEL='@@MODEL@@'
 say() { printf '\n\033[1;35mtokenfund\033[0m %s\n' "$*"; }
 die() { say "$*"; exit 1; }
-for c in git curl gh claude; do command -v "$c" >/dev/null || die "Please install $c first."; done
+for c in git curl gh claude tar; do command -v "$c" >/dev/null || die "Please install $c first."; done
 gh auth status >/dev/null 2>&1 || die "Please run: gh auth login. Then press + again."
-WORK="$(cd "$(mktemp -d)" && pwd -P)"
-P="$WORK/project"
-OS="$(uname -s)"
-W=tokenfund
-as_w() { sudo -n -iu "$W" "$@"; }
-install_worker() {
-  say "First run: creating a separate user called $W, with no root and no access to your files. This asks for your password once."
-  sudo -v || die "Nothing was changed."
-  if [ "$OS" = Linux ]; then
-    for c in bwrap socat; do command -v "$c" >/dev/null || die "Please install bubblewrap and socat first, then press + again."; done
-    id "$W" >/dev/null 2>&1 || sudo useradd --system --create-home --home-dir "/var/lib/$W" --shell /bin/bash "$W" || die "Could not create the user."
-    sudo chmod 700 "/var/lib/$W"
-    if [ -d /etc/apparmor.d ] && [ ! -f /etc/apparmor.d/bwrap ] && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
-      printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n' | sudo tee /etc/apparmor.d/bwrap >/dev/null
-      sudo apparmor_parser -r /etc/apparmor.d/bwrap
-    fi
-    [ "$(stat -c %a "$HOME" | cut -c3)" = 0 ] || say "Note: other users can read your home folder. To close that, run: chmod o-rwx ~"
-  elif [ "$OS" = Darwin ]; then
-    id "$W" >/dev/null 2>&1 || sudo sysadminctl -addUser "$W" -home "/Users/$W" -password "$(openssl rand -hex 24)" >/dev/null 2>&1 || die "Could not create the user."
-    sudo createhomedir -c -u "$W" >/dev/null 2>&1
-  else
-    die "This system isn't supported yet."
+CLAUDE="$(command -v claude)"
+WORK="$(cd "$(mktemp -d /tmp/tokenfund.XXXXXX 2>/dev/null || mktemp -d)" && pwd -P)"
+case "$WORK/" in "$HOME"/*) die "The temp folder is inside your home folder, which the sandbox hides. Set TMPDIR=/tmp and try again." ;; esac
+P="$WORK/project"; RUN="$WORK/run"
+if [ "$(uname -s)" = Linux ]; then
+  for c in bwrap socat; do command -v "$c" >/dev/null || die "Claude Code's sandbox needs bubblewrap and socat. Please install them (e.g. sudo apt install bubblewrap socat), then try again."; done
+  if ! bwrap --unshare-user --ro-bind / / true 2>/dev/null; then
+    say "Your system blocks the sandbox (Ubuntu 24+ default). Allowing it needs your password once."
+    sudo -v || die "Nothing was changed."
+    printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n  include if exists <local/bwrap>\n}\n' | sudo tee /etc/apparmor.d/bwrap >/dev/null
+    sudo apparmor_parser -r /etc/apparmor.d/bwrap
+    bwrap --unshare-user --ro-bind / / true 2>/dev/null || die "The sandbox still can't start. Nothing was sent."
   fi
-  echo "$(id -un) ALL=($W) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/$W" >/dev/null; sudo chmod 440 "/etc/sudoers.d/$W"
-  as_w bash -c 'curl -fsSL https://claude.ai/install.sh | bash' >/dev/null 2>&1 || die "Could not install Claude Code for the $W user."
-}
-as_w true 2>/dev/null && as_w test -x .local/bin/claude || install_worker
-if ! as_w .local/bin/claude auth status >/dev/null 2>&1; then
-  say "Log in once for the $W user. It's the same Claude account, but your own files stay out of reach."
-  sudo -iu "$W" .local/bin/claude auth login || die "Login didn't finish."
 fi
+env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} "$CLAUDE" auth status >/dev/null 2>&1 \
+  || die "Claude Code isn't logged in here. Run: claude, log in, then try again."
 SETTINGS='{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"autoAllowBashIfSandboxed":true,"filesystem":{"denyRead":["~/"],"allowRead":["."]},"network":{"allowedDomains":["registry.npmjs.org","pypi.org","files.pythonhosted.org","crates.io","static.crates.io","index.crates.io","proxy.golang.org"]}}}'
-RUN="runs/$SLUG-$$"
 git clone --quiet --depth 50 "https://github.com/$REPO" "$P" || die "Could not download the project."
 cd "$P" || exit 1
 @@ID@@
 S=""
 release() { [ -n "$S" ] && curl -fsS -m 10 -X POST "$API/api/release/$S" >/dev/null 2>&1; S=""; }
-trap 'release; as_w rm -rf "$RUN"; say "Stopped. Tokens used: $USED"; exit 0' INT TERM
+trap 'release; rm -rf "$WORK"; say "Stopped. Tokens used: $USED"; exit 0' INT TERM
+# Git runs on the agent's copy only through this repo's own git folder, so nothing the agent writes can configure git.
+gw() { git -C "$P" -c core.fsmonitor=false -c core.hooksPath=/dev/null --work-tree="$RUN" "$@"; }
 USED=0; PRS=0; EMPTY=0; FAILS=0
 FORK=""
 if [ "$BUDGET" -gt 0 ]; then say "Working on $REPO up to $BUDGET tokens. Press Ctrl-C to stop."; else say "Working on $REPO with no limit. Press Ctrl-C to stop."; fi
@@ -58,8 +45,8 @@ while :; do
     TURNS=$((LEFT/8000)); [ "$TURNS" -lt 4 ] && TURNS=4; [ "$TURNS" -gt 40 ] && TURNS=40
   fi
   git fetch --quiet --depth 50 origin HEAD && git reset --quiet --hard FETCH_HEAD && git clean -fdxq
-  # The agent gets a fresh copy in its own account, so nothing it writes runs or lands here unchecked.
-  as_w bash -c "rm -rf '$RUN' && mkdir -p runs && git clone --quiet --depth 1 'https://github.com/$REPO' '$RUN' && find '$RUN' -type l -not -path '*/.git/*' -delete" || die "Could not prepare the project."
+  # The agent gets a fresh copy without git or links, so nothing it writes runs or lands here unchecked.
+  rm -rf "$RUN" && mkdir -p "$RUN" && git archive HEAD | tar -x -C "$RUN" && find "$RUN" -type l -delete || die "Could not prepare the project."
   S="$(curl -fsS -X POST -H "x-tf-key: $TF_KEY" "$API/api/session/$SLUG?sha=$(git rev-parse HEAD)")" || die "This project is closed, your account is banned, or the site can't be reached."
   M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
   ARGS=(-p "Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns." ${M[@]+"${M[@]}"} \
@@ -67,12 +54,13 @@ while :; do
     --mcp-config "{\"mcpServers\":{\"tokenfund\":{\"type\":\"http\",\"url\":\"$API/mcp\"}}}" \
     --tools "Bash,Read,Edit,Write,Glob,Grep" \
     --allowedTools "mcp__tokenfund" "Bash" "Read(./**)" "Edit(./**)" "Write(./**)" \
+    --disallowedTools "Read(~/**)" "Edit(~/**)" "Write(~/**)" \
     --max-turns "$TURNS" --output-format json)
-  # Sent over stdin, because a login shell through sudo drops empty arguments.
-  { printf 'cd %q && exec ~/.local/bin/claude' "$RUN"; printf ' %q' "${ARGS[@]}"; printf ' < /dev/null > ~/%q 2> ~/%q\n' "$RUN.json" "$RUN.err"; } | as_w bash -s
-  as_w cat "$RUN.json" > "$WORK/run.json" 2>/dev/null
-  as_w cat "$RUN.err" > "$WORK/run.err" 2>/dev/null
+  # Clean environment: none of your shell's keys or settings reach the agent.
+  (cd "$RUN" && exec env -i HOME="$HOME" USER="${USER:-$(id -un)}" PATH="$PATH" LANG="${LANG:-C.UTF-8}" TERM=dumb \
+    ${CLAUDE_CONFIG_DIR:+CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR"} "$CLAUDE" "${ARGS[@]}" < /dev/null > "$WORK/run.json" 2> "$WORK/run.err")
   T="$(curl -fsS -m 30 --data-binary @"$WORK/run.json" "$API/api/usage/$S" 2>/dev/null)"
+  [ "$T" = wrong_model ] && { release; rm -rf "$WORK"; die "This project only accepts $MODEL, and your Claude plan ran another model. Nothing was sent."; }
   case "$T" in ''|*[!0-9]*) T=0 ;; esac
   USED=$((USED+T))
   if [ "$T" = 0 ]; then
@@ -81,24 +69,24 @@ while :; do
     continue
   fi
   FAILS=0
-  if ! as_w test -f "$RUN/.tokenfund-pr.md"; then
+  PRF="$RUN/.tokenfund-pr.md"
+  if [ ! -f "$PRF" ] || [ -L "$PRF" ]; then
     release; EMPTY=$((EMPTY+1)); say "No finished change this round. Tokens used: $USED"
     [ "$EMPTY" -ge 2 ] && { curl -fsS -m 10 -X POST -H "x-tf-key: $TF_KEY" "$API/api/idle/$SLUG" >/dev/null 2>&1; say "Nothing more to do right now."; break; }
     continue
   fi
   EMPTY=0
-  as_w cat "$RUN/.tokenfund-pr.md" | head -c 20000 > "$WORK/pr.md"
+  head -c 20000 "$PRF" > "$WORK/pr.md"; rm -f "$PRF"
   TITLE="$(head -n1 "$WORK/pr.md" | cut -c1-70)"; BODY="$(tail -n +2 "$WORK/pr.md")"
-  as_w bash -c "cd '$RUN' && rm -f .tokenfund-pr.md && git add -A && git diff --cached --binary" > "$WORK/change.patch"
-  if grep -qE '^(new file mode|old mode|new mode|deleted file mode) 120000' "$WORK/change.patch" || ! git apply --index "$WORK/change.patch" 2>/dev/null; then
-    git reset --quiet --hard; release; say "Blocked a change that failed the safety check. It was not sent."; continue
-  fi
+  find "$RUN" -name .git -prune -exec rm -rf {} + ; find "$RUN" -type l -delete
+  gw add -A
   if git diff --cached --quiet; then release; continue; fi
   # Last check before anything leaves this computer.
-  if git diff --cached --name-only | grep -qE '^(\.github/workflows/|\.claude/|\.mcp\.json|\.git)' \
+  if git diff --cached --summary | grep -qE 'mode 1(2|6)0000' \
+    || git diff --cached --name-only | grep -qE '^(\.github/workflows/|\.claude/|\.mcp\.json|\.git)' \
     || [ "$(git diff --cached --numstat | awk '{s+=$1+$2} END {print s+0}')" -gt 3000 ] \
     || git diff --cached | grep -qE 'BEGIN [A-Z ]*PRIVATE KEY|sk-ant-|ghp_[A-Za-z0-9]{20}|github_pat_|AKIA[0-9A-Z]{16}|\.claude/\.credentials'; then
-    release; say "Blocked a change that failed the safety check. It was not sent."; continue
+    git reset --quiet; release; say "Blocked a change that failed the safety check. It was not sent."; continue
   fi
   git -c user.useConfigOnly=false commit --quiet --no-verify -m "${TITLE:-tokenfund contribution}"
   if [ -z "$FORK" ]; then
@@ -116,5 +104,5 @@ Contributed via tokenfund.myclawn.com · session $S")"; then
     release; say "Could not open the pull request. Trying the next task."
   fi
 done
-as_w rm -rf "$RUN" "$RUN.json" "$RUN.err"
+rm -rf "$WORK"
 say "Done. $PRS pull requests, $USED tokens. Thank you!"
