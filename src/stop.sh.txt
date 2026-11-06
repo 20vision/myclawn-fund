@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# tokenfund: stop weekly giving to @@REPO@@ on this computer.
+API=@@API@@; SLUG='@@SLUG@@'; NAME="tokenfund-$SLUG"
+if [ "$(uname -s)" = Darwin ]; then PL="$HOME/Library/LaunchAgents/com.myclawn.$NAME.plist"; [ -f "$PL" ] && { launchctl unload "$PL" 2>/dev/null; rm -f "$PL"; }; fi
+if command -v systemctl >/dev/null && [ -f "$HOME/.config/systemd/user/$NAME.timer" ]; then
+  systemctl --user disable --now "$NAME.timer" >/dev/null 2>&1; rm -f "$HOME/.config/systemd/user/$NAME".{timer,service}; systemctl --user daemon-reload
+fi
+command -v crontab >/dev/null && crontab -l 2>/dev/null | grep -q "# $NAME\$" && crontab -l | grep -v "# $NAME\$" | crontab -
+K="$HOME/.config/tokenfund/key"; [ -s "$K" ] && curl -fsS -m 20 -X POST -H "x-tf-key: $(cat "$K")" "$API/api/pledge/$SLUG/stop" >/dev/null 2>&1
+printf '\n\033[1;35mtokenfund\033[0m Weekly giving to @@REPO@@ is stopped on this computer.\n'

@@ -17,3 +17,4 @@ CREATE INDEX IF NOT EXISTS actions_slug ON actions(slug,created_at);
 ALTER TABLE projects ADD COLUMN build_tokens INTEGER DEFAULT 0;
 ALTER TABLE projects ADD COLUMN chat TEXT DEFAULT ''; ALTER TABLE projects ADD COLUMN links TEXT DEFAULT '';
 ALTER TABLE projects ADD COLUMN blocked TEXT DEFAULT '';
+CREATE TABLE IF NOT EXISTS pledges(login TEXT, slug TEXT, weekly INTEGER, created_at INTEGER, stopped_at INTEGER DEFAULT 0, PRIMARY KEY(login, slug));

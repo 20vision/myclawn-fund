@@ -4,7 +4,7 @@
 # The agent works on a throwaway copy in a temp folder, inside Claude Code's own sandbox: it can't read your home folder,
 # and its network is limited to package registries. Your GitHub login stays with you: this script opens the pull requests.
 set -uo pipefail
-API=@@API@@; SLUG='@@SLUG@@'; REPO='@@REPO@@'; BUDGET=@@BUDGET@@; MODEL='@@MODEL@@'
+API=@@API@@; SLUG='@@SLUG@@'; REPO='@@REPO@@'; BUDGET=@@BUDGET@@; MODEL='@@MODEL@@'; WEEKLY=@@WEEKLY@@; MODE='@@MODE@@'
 say() { printf '\n\033[1;35mtokenfund\033[0m %s\n' "$*"; }
 die() { say "$*"; exit 1; }
 for c in git curl gh claude tar; do command -v "$c" >/dev/null || die "Please install $c first."; done
@@ -29,6 +29,47 @@ SETTINGS='{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedC
 git clone --quiet --depth 50 "https://github.com/$REPO" "$P" || die "Could not download the project."
 cd "$P" || exit 1
 @@ID@@
+# Weekly giving: the site keeps the weekly amount and hands out an even share each day, so it never all goes on day one.
+STATE="$HOME/.local/state/tokenfund"; NAME="tokenfund-$SLUG"
+install_daily() {
+  mkdir -p "$STATE"; H=$((9 + RANDOM % 12)); MI=$((RANDOM % 60))
+  CMD="cd /tmp && curl -fsSL '$API/a/$SLUG?mode=daily' -o '$STATE/$SLUG.sh' && bash '$STATE/$SLUG.sh' >> '$STATE/$SLUG.log' 2>&1"
+  if [ "$(uname -s)" = Darwin ]; then
+    PL="$HOME/Library/LaunchAgents/com.myclawn.$NAME.plist"; mkdir -p "$(dirname "$PL")"
+    cat > "$PL" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>Label</key><string>com.myclawn.$NAME</string>
+<key>ProgramArguments</key><array><string>/bin/bash</string><string>-c</string><string>$CMD</string></array>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>$PATH</string></dict>
+<key>StartCalendarInterval</key><dict><key>Hour</key><integer>$H</integer><key>Minute</key><integer>$MI</integer></dict>
+<key>LowPriorityIO</key><true/><key>Nice</key><integer>10</integer></dict></plist>
+PLIST
+    launchctl unload "$PL" 2>/dev/null; launchctl load -w "$PL" || return 1
+  elif systemctl --user show-environment >/dev/null 2>&1; then
+    U="$HOME/.config/systemd/user"; mkdir -p "$U"
+    printf '[Unit]\nDescription=tokenfund: daily share of your weekly tokens for %s\n[Service]\nType=oneshot\nNice=10\nEnvironment=PATH=%s\nExecStart=/bin/bash -c "%s"\n' "$REPO" "$PATH" "$CMD" > "$U/$NAME.service"
+    printf '[Unit]\nDescription=tokenfund daily run for %s\n[Timer]\nOnCalendar=*-*-* %02d:%02d:00\nPersistent=true\n[Install]\nWantedBy=timers.target\n' "$REPO" "$H" "$MI" > "$U/$NAME.timer"
+    systemctl --user daemon-reload && systemctl --user enable --now "$NAME.timer" >/dev/null 2>&1 || return 1
+  elif command -v crontab >/dev/null; then
+    { crontab -l 2>/dev/null | grep -v "# $NAME\$"; echo "$MI $H * * * PATH=$PATH /bin/bash -c \"$CMD\" # $NAME"; } | crontab - || return 1
+  else
+    return 1
+  fi
+  printf '%02d:%02d' "$H" "$MI"
+}
+if [ "$WEEKLY" -gt 0 ] && [ "$MODE" != daily ]; then
+  curl -fsS -m 20 -X POST -H "x-tf-key: $TF_KEY" "$API/api/pledge/$SLUG?weekly=$WEEKLY" >/dev/null || die "Could not save your weekly amount."
+  AT="$(install_daily)" || die "Could not set up the daily run on this computer."
+  say "Every week: $WEEKLY tokens, spread over the days (runs daily at $AT). Stop any time: bash <(curl -fsSL $API/stop/$SLUG)"
+  MODE=daily
+fi
+if [ "$MODE" = daily ]; then
+  B="$(curl -fsS -m 20 -H "x-tf-key: $TF_KEY" "$API/api/budget/$SLUG")" || die "The site can't be reached. Trying again tomorrow."
+  case "$B" in stopped) bash <(curl -fsSL "$API/stop/$SLUG") >/dev/null 2>&1; die "Weekly giving to $REPO is stopped." ;; ''|*[!0-9]*) die "Unexpected answer from the site. Trying again tomorrow." ;; esac
+  [ "$B" -lt 30000 ] && { rm -rf "$WORK"; say "Today's share is used up. Next run tomorrow."; exit 0; }
+  BUDGET=$B
+fi
 S=""
 release() { [ -n "$S" ] && curl -fsS -m 10 -X POST "$API/api/release/$S" >/dev/null 2>&1; S=""; }
 trap 'release; rm -rf "$WORK"; say "Stopped. Tokens used: $USED"; exit 0' INT TERM
