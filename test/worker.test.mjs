@@ -145,3 +145,13 @@ test('runner script is valid bash and knows both harnesses', async () => {
   assert.match(r, /\?h=\$HARNESS/);
   execFileSync('bash', ['-n', '-c', r]);
 });
+
+test('a project needs tokens unless it is completed or idle with no open task', () => {
+  const src2 = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
+  const line = src2.split('\n').find(l => l.startsWith('const needsTokens'));
+  const needsTokens = new Function(`${line}; return needsTokens;`)();
+  assert.equal(needsTokens({ slug: 'a', complete_at: 0, idle_at: 0 }, {}), true);
+  assert.equal(needsTokens({ slug: 'a', complete_at: 0, idle_at: 1 }, { a: 2 }), true);
+  assert.equal(needsTokens({ slug: 'a', complete_at: 0, idle_at: 1 }, {}), false);
+  assert.equal(needsTokens({ slug: 'a', complete_at: 5, idle_at: 0 }, { a: 2 }), false);
+});
