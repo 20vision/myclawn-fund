@@ -87,3 +87,13 @@ test('page JavaScript parses (one stray quote kills every button)', () => {
   const js = src.slice(start, src.indexOf('`;', start)).replace(/\\(.)/g, '$1');
   assert.doesNotThrow(() => new Function(js));
 });
+
+test('/list agent instructions include the template and the submit call', () => {
+  const ORIGIN = 'https://tokenfund.myclawn.com';
+  const TEMPLATE = new Function(`${slice('const TEMPLATE', 'const listText')}; return TEMPLATE;`)();
+  const listText = new Function('ORIGIN', 'TEMPLATE', `${slice('const listText', 'const submitPage')}; return listText;`)(ORIGIN, TEMPLATE);
+  const t = listText();
+  assert.match(t, /# My Project\nVision:/);
+  assert.match(t, /POST https:\/\/tokenfund\.myclawn\.com\/api\/submit/);
+  assert.ok(!t.includes('${'));
+});
