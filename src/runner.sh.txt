@@ -83,7 +83,11 @@ while :; do
   git fetch --quiet --depth 50 origin HEAD && git reset --quiet --hard FETCH_HEAD && git clean -fdxq
   # The agent gets a fresh copy without git or links, so nothing it writes runs or lands here unchecked.
   rm -rf "$RUN" && mkdir -p "$RUN" && git archive HEAD | tar -x -C "$RUN" && find "$RUN" -type l -delete || die "Could not prepare the project."
-  S="$(curl -fsS -X POST -H "x-tf-key: $TF_KEY" "$API/api/session/$SLUG?sha=$(git rev-parse HEAD)")" || die "This project is closed, your account is banned, or the site can't be reached."
+  S="$(curl -sS -X POST -H "x-tf-key: $TF_KEY" -w '\n%{http_code}' "$API/api/session/$SLUG?sha=$(git rev-parse HEAD)")" || die "The site can't be reached."
+  CODE="${S##*$'\n'}"; S="${S%$'\n'*}"
+  [ "$CODE" = 409 ] && { rm -rf "$WORK"; say "The project's owner paused new work for now (too many pull requests waiting, or paused). Tokens used: $USED"; exit 0; }
+  [ "$CODE" = 200 ] || die "${S:-This project is closed.}"
+  case "$S" in *[!a-f0-9]*|'') die "Unexpected answer from the site." ;; esac
   M=(); [ -n "$MODEL" ] && M=(--model "$MODEL")
   PROMPT="Call the tokenfund start_session tool with project $SLUG and session $S, then follow what it returns."
   RES=(); TRY=0; T=0; DONE_OK=0

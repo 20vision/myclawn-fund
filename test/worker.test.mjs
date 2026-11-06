@@ -35,7 +35,7 @@ test('parseFile keys are case-insensitive and CRLF is handled', () => {
 
 test('parseFile returns empty strings when fields are missing', () => {
   const f = parseFile('just text');
-  assert.deepEqual(f, { title: '', vision: '', image: '', model: '', location: '', chat: '', links: '', block: '', context: 'just text' });
+  assert.deepEqual(f, { title: '', vision: '', image: '', model: '', location: '', chat: '', links: '', block: '', context: 'just text', state: 'open', maxOpen: -1 });
 });
 
 test('parseFile keeps the first title and ## headings stay in the context', () => {
@@ -102,4 +102,10 @@ test('parseFile reads the Block line and keeps it out of the context', () => {
   const f = parseFile('# P\nVision: v\nBlock: @bad-user, other\nreal context');
   assert.equal(f.block, '@bad-user, other');
   assert.equal(f.context, 'real context');
+});
+
+test('parseFile reads owner controls and keeps them out of the context', () => {
+  const f = parseFile('# P\nVision: v\nStatus: Paused\nMax open PRs: 3\nctx');
+  assert.equal(f.state, 'paused'); assert.equal(f.maxOpen, 3); assert.equal(f.context, 'ctx');
+  assert.equal(parseFile('Status: whatever').state, 'open');
 });
