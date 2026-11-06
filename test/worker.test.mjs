@@ -81,3 +81,9 @@ test('tokensFrom returns null for missing or malformed usage', () => {
   assert.equal(tokensFrom({}), null);
   assert.equal(tokensFrom({ modelUsage: 'x' }), null);
 });
+
+test('page JavaScript parses (one stray quote kills every button)', () => {
+  const start = src.indexOf('const JS = `') + 'const JS = `'.length;
+  const js = src.slice(start, src.indexOf('`;', start)).replace(/\\(.)/g, '$1');
+  assert.doesNotThrow(() => new Function(js));
+});
