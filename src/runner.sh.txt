@@ -109,7 +109,7 @@ review_one() {
     { gh api "repos/$REPO/issues/$N/comments" --paginate -q '.[].body'; gh api "repos/$REPO/pulls/$N/reviews" --paginate -q '.[].body'; } 2>/dev/null | grep -q "fund-review $HS" && continue
     git fetch --quiet --depth 50 origin "pull/$N/head" 2>/dev/null || continue
     RV="$WORK/review"; rm -rf "$RV" && mkdir -p "$RV" && git archive FETCH_HEAD | tar -x -C "$RV" && find "$RV" -type l -delete
-    git diff HEAD FETCH_HEAD | head -c 400000 > "$RV/pr.diff"
+    git diff HEAD...FETCH_HEAD | head -c 400000 > "$RV/pr.diff"
     gh pr view "$N" -R "$REPO" --json title,body,author -q '"Title: "+.title+"\nAuthor: "+.author.login+"\n\n"+.body' | head -c 20000 > "$RV/pr.txt"
     S="$(curl -fsS -X POST -H "x-tf-key: $TF_KEY" "$API/api/session/$SLUG?kind=review&sha=$HS")" || { S=""; return 1; }
     case "$S" in *[!a-f0-9]*|'') S=""; return 1 ;; esac
