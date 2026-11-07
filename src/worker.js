@@ -102,8 +102,10 @@ async function settle(env, id) {
   await caches.default.delete(LIVE_KEY);
   return status;
 }
+// Each open report counts its net weighted votes. The floor of 1 applies only if the reporter has voting weight,
+// so fresh accounts with no weight can't sink a project's ranking just by filing reports.
 async function refreshDanger(env, slug) {
-  const d = await env.DB.prepare("SELECT coalesce(sum(w),0) d FROM (SELECT r.id, max(1, coalesce(sum(CASE WHEN v.vote='confirm' THEN v.weight ELSE -v.weight END),0)) w FROM reports r LEFT JOIN votes v ON v.report_id=r.id WHERE r.kind='project' AND r.target=? AND r.status='open' GROUP BY r.id)").bind(slug).first();
+  const d = await env.DB.prepare("SELECT coalesce(sum(w),0) d FROM (SELECT r.id, max(coalesce((SELECT 1 FROM votes x WHERE x.report_id=r.id AND x.voter=r.reporter AND x.weight>0),0), coalesce(sum(CASE WHEN v.vote='confirm' THEN v.weight ELSE -v.weight END),0)) w FROM reports r LEFT JOIN votes v ON v.report_id=r.id WHERE r.kind='project' AND r.target=? AND r.status='open' GROUP BY r.id)").bind(slug).first();
   await env.DB.prepare('UPDATE projects SET danger=? WHERE slug=?').bind(d.d, slug).run();
 }
 async function vote(env, id, voter, choice) {
