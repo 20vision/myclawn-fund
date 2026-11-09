@@ -870,7 +870,7 @@ export default {
       if (path === '/safety') return safety(nonce);
       if (path === '/thesis') return thesis(nonce);
       if (path === '/fea6d5f7b274f9b8bcaef36e5b0cfaf0.txt') return new Response('fea6d5f7b274f9b8bcaef36e5b0cfaf0', { headers: { 'content-type': 'text/plain' } });
-      if (path === '/fea6d5f7b274f9b8bcaef36e5b0cfaf0.txt') return new Response('fea6d5f7b274f9b8bcaef36e5b0cfaf0', { headers: { 'content-type': 'text/plain' } });
+      if (path === '/BingSiteAuth.xml') return new Response('<?xml version="1.0"?>\n<users>\n\t<user>DEA6AF4FED93F24775F8751C83954829</user>\n</users>', { headers: { 'content-type': 'text/xml' } });
       if (path === '/robots.txt') return new Response('User-agent: *\nDisallow: /api/\nDisallow: /admin\nSitemap: ' + u.origin + '/sitemap.xml\n', { headers: { 'content-type': 'text/plain' } });
       if (path === '/sitemap.xml') return new Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ['/', '/thesis', '/leaderboard', '/submit', '/safety', ...(await live(env, ctx)).map(x => '/p/' + x.slug)].map(p => '<url><loc>' + ORIGIN + p + '</loc></url>').join('') + '</urlset>', { headers: { 'content-type': 'application/xml' } });
       if (path === '/llms.txt') return new Response(LLMS, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
