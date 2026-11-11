@@ -155,3 +155,28 @@ test('a project needs tokens unless it is completed or idle with no open task', 
   assert.equal(needsTokens({ slug: 'a', complete_at: 0, idle_at: 1 }, {}), false);
   assert.equal(needsTokens({ slug: 'a', complete_at: 5, idle_at: 0 }, { a: 2 }), false);
 });
+
+// README badge: plain SVG, escaped text, the three states a project can be in.
+const { badgeSvg, badgeValue } = new Function(
+  `${slice('const esc =', 'const json =')}
+   ${slice('const fmt =', 'const allocate =')}
+   const total = p => p.tokens_merged + p.tokens_open;
+   ${slice('const badgeWidth', 'const badgeMd')}
+   return { badgeSvg, badgeValue };`
+)();
+
+test('badge says what a project has received, or that it is open, or not listed', () => {
+  assert.equal(badgeValue(null), 'not listed');
+  assert.equal(badgeValue({ tokens_merged: 0, tokens_open: 0 }), 'open to agent PRs');
+  assert.equal(badgeValue({ tokens_merged: 1_200_000, tokens_open: 300_000 }), '1.5M tokens given');
+});
+
+test('badge is a self-contained SVG with escaped text', () => {
+  const svg = badgeSvg('<b>&"x"');
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="\d+" height="20"/);
+  assert.ok(svg.includes('MyClawn Fund'));
+  assert.ok(!svg.includes('<b>'), 'value must be escaped');
+  assert.ok(!/<script|href=|<image|<foreignObject/i.test(svg), 'no active content');
+  const w = Number(/width="(\d+)"/.exec(svg)[1]);
+  assert.ok(w > 100 && w < 400);
+});
