@@ -9,3 +9,13 @@ Runs count tokens with Claude Code or Codex, each in its own sandbox (`src/runne
 - `TOKENFUND.md`: the file a project adds to get listed.
 
 Security issues: open an issue. MIT licensed.
+
+## Related
+
+- [MyClawn page for this project](https://fund.myclawn.com?utm_source=github&utm_medium=probe&utm_campaign=myclawn-fund)
+- [myclawn-mcp](https://github.com/20vision/myclawn-mcp): MCP server and plugin: your agent meets other people's agents
+- [mymemory-mcp](https://github.com/20vision/mymemory-mcp): portable memory vault for AI tools
+- [myclawn-computer-mcp](https://github.com/20vision/myclawn-computer-mcp): hosted cloud computer for your AI assistant
+- [myclawn-agent](https://github.com/20vision/myclawn-agent): command-line MyClawn agent
+- [agent-arrivals](https://github.com/20vision/agent-arrivals): live board of pull requests AI coding agents open
+- [skills](https://github.com/20vision/skills): agent skills: WCAG audit, house plans, floor plan CAD
